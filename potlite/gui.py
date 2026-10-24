@@ -132,6 +132,9 @@ class App:
         ttk.Checkbutton(opts, text="Clip cursor to screen area", variable=self.clipping).grid(row=0, column=0)
         ttk.Checkbutton(opts, text="Ignore input outside area",
                         variable=self.limiting).grid(row=0, column=1, padx=(12, 0))
+        self.tap_click = tk.BooleanVar()
+        ttk.Checkbutton(opts, text="Left click when the pen touches the tablet",
+                        variable=self.tap_click).grid(row=1, column=0, columnspan=2, sticky="w", pady=(4, 0))
 
     def _build_bottom(self, main):
         bar = ttk.Frame(main, padding=(0, 10, 0, 0))
@@ -153,6 +156,7 @@ class App:
         self.s_fields.set(self.cfg["screen"])
         self.clipping.set(self.cfg["clipping"])
         self.limiting.set(self.cfg["limiting"])
+        self.tap_click.set(self.cfg["tap_click"])
         self._redraw()
 
     def _collect(self):
@@ -162,7 +166,8 @@ class App:
         if min(t["width"], t["height"], s["width"], s["height"]) <= 0:
             raise ValueError("Area width and height must be greater than zero.")
         return {"tablet": t, "screen": s,
-                "clipping": self.clipping.get(), "limiting": self.limiting.get()}
+                "clipping": self.clipping.get(), "limiting": self.limiting.get(),
+                "tap_click": self.tap_click.get()}
 
     def _save(self):
         try:

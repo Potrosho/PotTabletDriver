@@ -34,6 +34,7 @@ def default_config(screen_area):
         "screen": dict(screen_area),
         "clipping": True,
         "limiting": False,
+        "tap_click": True,
     }
 
 
@@ -52,7 +53,7 @@ def load(path, default_screen):
             for field, value in data[key].items():
                 if field in cfg[key] and isinstance(value, (int, float)):
                     cfg[key][field] = float(value)
-    for key in ("clipping", "limiting"):
+    for key in ("clipping", "limiting", "tap_click"):
         if isinstance(data.get(key), bool):
             cfg[key] = data[key]
 
@@ -113,12 +114,13 @@ def import_opentabletdriver(settings_path=None):
 def build_transform(cfg, virtual_width, virtual_height):
     """Precompute everything the hot loop needs.
 
-    Returns (a, b, c, d, e, f, min_x, min_y, max_x, max_y, clipping, limiting)
+    Returns (a, b, c, d, e, f, min_x, min_y, max_x, max_y, clipping, limiting, tap_click)
     such that, for a raw tablet position (x, y):
         nx = a*x + b*y + c
         ny = d*x + e*y + f
     gives SendInput absolute coordinates (0..65535 across the virtual desktop),
-    and min/max are the screen area bounds in the same units.
+    min/max are the screen area bounds in the same units, and tap_click says
+    whether touching the tablet with the pen tip holds the left mouse button.
 
     This is the same math as OpenTabletDriver's AbsoluteOutputMode, folded into
     one affine matrix and pre-scaled to SendInput units.
@@ -154,4 +156,5 @@ def build_transform(cfg, virtual_width, virtual_height):
 
     limiting = bool(cfg["limiting"])
     clipping = bool(cfg["clipping"]) or limiting
-    return (a, b, c, d, e, f, min_x, min_y, max_x, max_y, clipping, limiting)
+    return (a, b, c, d, e, f, min_x, min_y, max_x, max_y, clipping, limiting,
+            bool(cfg["tap_click"]))

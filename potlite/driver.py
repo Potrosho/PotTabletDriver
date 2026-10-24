@@ -21,11 +21,18 @@ def pid_path(config_path):
     return os.path.join(os.path.dirname(config_path), "driver.pid")
 
 
+# Button change passed to emit() together with the position.
+BUTTON_NONE = 0
+BUTTON_DOWN = 1
+BUTTON_UP = 2
+
+
 def pump(read, buf, emit, holder):
     """The hot loop. Returns only when ``read`` fails (device unplugged).
 
     read   -- callable filling ``buf`` with one report, returning falsy on error
-    emit   -- callable(nx, ny) moving the cursor (SendInput units)
+    emit   -- callable(nx, ny, button) moving the cursor (SendInput units) and,
+              when button is BUTTON_DOWN/BUTTON_UP, pressing/releasing the left button
     holder -- one-item list with the current transform from config.build_transform;
               replaced from another thread when the settings change
     """
@@ -34,44 +41,70 @@ def pump(read, buf, emit, holder):
     ignored = tablet.STATUS_IGNORED
     aux_bit = tablet.STATUS_AUX_BIT
     last_x = last_y = -1
+    tip_down = False
 
     while read():
-        status, x_lo, y_lo, x_hi, y_hi = unpack(buf)
-        if status == out_of_range or status in ignored or status & aux_bit:
+        status, x_lo, y_lo, pressure, x_hi, y_hi = unpack(buf)
+        if status == out_of_range:
+            # Pen left the tablet: never leave the button stuck down.
+            if tip_down:
+                tip_down = False
+                emit(last_x, last_y, BUTTON_UP)
+            continue
+        if status in ignored or status & aux_bit:
             continue
         x = x_lo | x_hi << 16
         y = y_lo | y_hi << 16
 
-        a, b, c, d, e, f, min_x, min_y, max_x, max_y, clipping, limiting = holder[0]
+        a, b, c, d, e, f, min_x, min_y, max_x, max_y, clipping, limiting, tap_click = holder[0]
+
+        touching = tap_click and pressure > 0
+        button = BUTTON_NONE
+        if touching != tip_down:
+            tip_down = touching
+            button = BUTTON_DOWN if touching else BUTTON_UP
+
         nx = a * x + b * y + c
         ny = d * x + e * y + f
         if clipping:
             if nx < min_x or nx > max_x or ny < min_y or ny > max_y:
                 if limiting:
+                    # Outside the area: don't start a click here, but do finish one.
+                    if button == BUTTON_DOWN:
+                        tip_down = False
+                    elif button == BUTTON_UP:
+                        emit(last_x, last_y, BUTTON_UP)
                     continue
                 nx = min_x if nx < min_x else max_x if nx > max_x else nx
                 ny = min_y if ny < min_y else max_y if ny > max_y else ny
 
         ix = int(nx)
         iy = int(ny)
-        if ix != last_x or iy != last_y:
+        if ix != last_x or iy != last_y or button:
             last_x = ix
             last_y = iy
-            emit(ix, iy)
+            emit(ix, iy, button)
+
+    if tip_down:
+        emit(last_x, last_y, BUTTON_UP)
 
 
 def _make_emitter(win32):
     inp = win32.INPUT()
     inp.type = win32.INPUT_MOUSE
     mi = inp.mi
-    mi.dwFlags = win32.MOUSEEVENTF_MOVE | win32.MOUSEEVENTF_ABSOLUTE | win32.MOUSEEVENTF_VIRTUALDESK
+    move = win32.MOUSEEVENTF_MOVE | win32.MOUSEEVENTF_ABSOLUTE | win32.MOUSEEVENTF_VIRTUALDESK
+    # Indexed by BUTTON_NONE / BUTTON_DOWN / BUTTON_UP. Windows applies the move
+    # before the button change within one event, so the click lands on the new position.
+    flags = (move, move | win32.MOUSEEVENTF_LEFTDOWN, move | win32.MOUSEEVENTF_LEFTUP)
     ref = ctypes.byref(inp)
     size = ctypes.sizeof(inp)
     send_input = win32.user32.SendInput
 
-    def emit(nx, ny):
+    def emit(nx, ny, button):
         mi.dx = nx
         mi.dy = ny
+        mi.dwFlags = flags[button]
         send_input(1, ref, size)
 
     return emit

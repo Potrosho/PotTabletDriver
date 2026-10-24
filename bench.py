@@ -1,5 +1,5 @@
 """Measure the Python cost of handling one tablet report (parse + transform +
-dedupe), excluding the Windows ReadFile/SendInput calls themselves.
+click detection + dedupe), excluding the Windows ReadFile/SendInput calls themselves.
 
 Run from the repository root:  python bench.py
 """
@@ -30,7 +30,7 @@ def make_read():
     return read
 
 
-def emit(x, y):
+def emit(x, y, button):
     pass
 
 

@@ -1,9 +1,10 @@
 # PotTabletLite
 
 A minimal, low-latency tablet driver for playing **osu!** on Windows with an
-**XP-Pen Star G430S V2**. It only moves the cursor: the tablet area is mapped
-to a screen area in absolute mode, and nothing else runs. A small settings
-window sets the tablet area and the screen or monitor it covers.
+**XP-Pen Star G430S V2**. It only moves the cursor and, optionally, left-clicks
+when the pen touches the tablet. The tablet area is mapped to a screen area in
+absolute mode, and nothing else runs. A small settings window sets the tablet
+area and the screen or monitor it covers.
 
 It's written in plain Python with no extra packages to install.
 
@@ -18,7 +19,7 @@ OpenTabletDriver, so areas behave the same and can be imported directly.
 | --- | --- |
 | Daemon + GUI talking over RPC | One small driver process; the GUI only edits a settings file |
 | Filters, plugins, binding system, output-mode pipeline | Nothing. Each report is parsed, multiplied by one precomputed matrix, and sent |
-| Pressure, tilt, pen/express buttons, Windows Ink | Not handled. Use the keyboard to click in osu! |
+| Pressure, tilt, pen/express buttons, Windows Ink | Not handled. The only "binding" is an optional left click while the tip touches the tablet; otherwise click with the keyboard |
 | 300+ tablets | One tablet, hard-coded |
 
 On top of that, the hot loop:
@@ -69,6 +70,10 @@ Options:
 - **Clip cursor to screen area** (on by default): pen positions outside the tablet area
   stick to the edge of the screen area.
 - **Ignore input outside area**: pen positions outside the tablet area are dropped instead.
+  With this on, touching the tablet outside the area doesn't click.
+- **Left click when the pen touches the tablet** (on by default): the left mouse button is
+  held while the tip touches the tablet, the same rule OpenTabletDriver uses (any pressure
+  counts). Turn it off if you only click with the keyboard.
 
 ### Without the GUI
 

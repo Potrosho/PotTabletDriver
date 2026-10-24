@@ -34,15 +34,20 @@ def otd_transform(cfg, x, y):
             ry * s["height"] / t["height"] + s["y"])
 
 
+NONE, DOWN, UP = driver.BUTTON_NONE, driver.BUTTON_DOWN, driver.BUTTON_UP
+
 SCREEN = {"width": 1920.0, "height": 1080.0, "x": 960.0, "y": 540.0}
 
 
 class ParseTests(unittest.TestCase):
     def test_pen_report(self):
-        self.assertEqual(tablet.parse(report(0xA0, 5080, 3810)), (5080, 3810))
+        self.assertEqual(tablet.parse(report(0xA0, 5080, 3810)), (5080, 3810, False))
+
+    def test_touching(self):
+        self.assertEqual(tablet.parse(report(0xA1, 10, 20, pressure=1)), (10, 20, True))
 
     def test_high_bytes(self):
-        self.assertEqual(tablet.parse(report(0xA1, 0x12345, 0x10001)), (0x12345, 0x10001))
+        self.assertEqual(tablet.parse(report(0xA1, 0x12345, 0x10001)), (0x12345, 0x10001, False))
 
     def test_non_pen_reports(self):
         for status in (0xC0, 0xB4, 0xF2, 0xF8, 0xF0, 0x10):
@@ -94,7 +99,7 @@ class PumpTests(unittest.TestCase):
             return True
 
         out = []
-        driver.pump(read, buf, lambda x, y: out.append((x, y)),
+        driver.pump(read, buf, lambda x, y, button: out.append((x, y, button)),
                     [config.build_transform(cfg, vw, vh)])
         return out
 
@@ -107,26 +112,62 @@ class PumpTests(unittest.TestCase):
             report(0xA0, 0, 0),           # same position: not re-sent
             report(0xA0, tablet.MAX_X, tablet.MAX_Y),
         ])
-        self.assertEqual(out, [(0, 0), (65535, 65535)])
+        self.assertEqual(out, [(0, 0, NONE), (65535, 65535, NONE)])
 
     def test_clipping(self):
         cfg = config.default_config(SCREEN)
         cfg["tablet"].update(width=50.0, height=28.125)
         out = self.run_pump(cfg, [report(0xA0, 0, 0)])
-        self.assertEqual(out, [(0, 0)])
+        self.assertEqual(out, [(0, 0, NONE)])
 
     def test_limiting(self):
         cfg = config.default_config(SCREEN)
         cfg["tablet"].update(width=50.0, height=28.125)
         cfg["limiting"] = True
         out = self.run_pump(cfg, [report(0xA0, 0, 0), report(0xA0, 5080, 3810)])
-        self.assertEqual(out, [(32767, 32767)])
+        self.assertEqual(out, [(32767, 32767, NONE)])
 
     def test_second_monitor(self):
         # Two 1920x1080 monitors side by side, area covers the right one.
         cfg = config.default_config({"width": 1920.0, "height": 1080.0, "x": 2880.0, "y": 540.0})
         out = self.run_pump(cfg, [report(0xA0, 0, 0)], vw=3840)
-        self.assertEqual(out, [(32767, 0)])
+        self.assertEqual(out, [(32767, 0, NONE)])
+
+    def test_tap_click(self):
+        cfg = config.default_config(SCREEN)
+        out = self.run_pump(cfg, [
+            report(0xA0, 0, 0),                # hover
+            report(0xA1, 0, 0, pressure=40),   # touch at same spot: click is still sent
+            report(0xA1, 0, 0, pressure=900),  # still touching: nothing new
+            report(0xA1, tablet.MAX_X, 0, pressure=900),  # drag
+            report(0xA0, tablet.MAX_X, 0),     # lift
+        ])
+        self.assertEqual(out, [(0, 0, NONE), (0, 0, DOWN), (65535, 0, NONE), (65535, 0, UP)])
+
+    def test_tap_click_disabled(self):
+        cfg = config.default_config(SCREEN)
+        cfg["tap_click"] = False
+        out = self.run_pump(cfg, [report(0xA1, 0, 0, pressure=500), report(0xA0, 0, 0)])
+        self.assertEqual(out, [(0, 0, NONE)])
+
+    def test_release_when_pen_leaves_or_unplugged(self):
+        cfg = config.default_config(SCREEN)
+        out = self.run_pump(cfg, [report(0xA1, 0, 0, pressure=5), report(0xC0, 0, 0)])
+        self.assertEqual(out, [(0, 0, DOWN), (0, 0, UP)])
+        out = self.run_pump(cfg, [report(0xA1, 0, 0, pressure=5)])
+        self.assertEqual(out, [(0, 0, DOWN), (0, 0, UP)])
+
+    def test_limiting_never_clicks_outside_area(self):
+        cfg = config.default_config(SCREEN)
+        cfg["tablet"].update(width=50.0, height=28.125)
+        cfg["limiting"] = True
+        out = self.run_pump(cfg, [
+            report(0xA1, 0, 0, pressure=5),        # touch outside the area: ignored
+            report(0xA1, 5080, 3810, pressure=5),  # slide into the area: click starts
+            report(0xA1, 0, 0, pressure=5),        # slide out while pressed
+            report(0xA0, 0, 0),                    # lift outside: release still sent
+        ])
+        self.assertEqual(out, [(32767, 32767, DOWN), (32767, 32767, UP)])
 
 
 class ConfigTests(unittest.TestCase):

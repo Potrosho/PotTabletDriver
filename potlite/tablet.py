@@ -28,8 +28,9 @@ MAX_Y = 7620
 # Report layout (12 bytes):
 #   [0] report id   [1] status   [2:4] X low   [4:6] Y low
 #   [6:8] pressure  [8] tilt X   [9] tilt Y    [10] X high  [11] Y high
-# Only status and position are needed for cursor movement.
-REPORT = struct.Struct("<xBHH4xBB")
+# Status, position and pressure are read; pressure is only used to tell whether
+# the pen tip touches the tablet (pressure > 0, the same rule OpenTabletDriver uses).
+REPORT = struct.Struct("<xBHHH2xBB")
 
 STATUS_OUT_OF_RANGE = 0xC0
 # Echoed init reports, idle reports and wireless dongle "on" reports.
@@ -45,8 +46,9 @@ def is_pen_status(status):
 
 
 def parse(report):
-    """Return (x, y) in tablet units, or None if the report has no pen position."""
-    status, x_lo, y_lo, x_hi, y_hi = REPORT.unpack_from(report)
+    """Return (x, y, touching) with x/y in tablet units, or None if the report
+    has no pen position."""
+    status, x_lo, y_lo, pressure, x_hi, y_hi = REPORT.unpack_from(report)
     if not is_pen_status(status):
         return None
-    return x_lo | x_hi << 16, y_lo | y_hi << 16
+    return x_lo | x_hi << 16, y_lo | y_hi << 16, pressure > 0
