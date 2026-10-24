@@ -7,10 +7,14 @@ import json
 import math
 import os
 import struct
+import sys
 import tempfile
 import unittest
 
-from potlite import config, driver, tablet
+# Make "potlite" importable when this file is run directly (e.g. VS Code's Run button).
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from potlite import config, driver, tablet  # noqa: E402
 
 
 def report(status, x, y, pressure=0):
