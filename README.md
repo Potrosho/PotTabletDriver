@@ -1,183 +1,132 @@
-[![GitHub Actions Status](https://github.com/OpenTabletDriver/OpenTabletDriver/actions/workflows/dotnet.yml/badge.svg)](https://github.com/OpenTabletDriver/OpenTabletDriver/actions/workflows/dotnet.yml) [![Total Download Count](https://img.shields.io/github/downloads/OpenTabletDriver/OpenTabletDriver/total.svg)](https://github.com/OpenTabletDriver/OpenTabletDriver/releases/latest)
+# PotTabletLite
 
-# OpenTabletDriver
+A minimal, low-latency tablet driver for playing **osu!** on Windows with an
+**XP-Pen Star G430S V2**. It only moves the cursor: the tablet area is mapped
+to a screen area in absolute mode, and nothing else runs. A small settings
+window sets the tablet area and the screen or monitor it covers.
 
-English | [한국어](docs/README_KO.md) | [Español](docs/README_ES.md) | [Русский](docs/README_RU.md) | [简体中文](docs/README_CN.md) | [Français](docs/README_FR.md) | [Deutsch](docs/README_DE.md) | [Português-BR](docs/README_PTBR.md) | [Tiếng Việt](docs/README_VN.md)
+It's written in plain Python with no extra packages to install.
 
-OpenTabletDriver is an open source, cross platform, user mode tablet driver. The goal of OpenTabletDriver is to be as cross platform as possible with the highest compatibility in an easily configurable graphical user interface.
+PotTabletLite is a lightweight rewrite of the absolute-cursor part of
+[OpenTabletDriver](https://github.com/OpenTabletDriver/OpenTabletDriver). Its
+tablet specs, init report, report parsing and area math are taken from
+OpenTabletDriver, so areas behave the same and can be imported directly.
 
-<p align="middle">
-  <img src="https://i.imgur.com/XDYf62e.png" width="410" align="middle"/>
-  <img src="https://i.imgur.com/jBW8NpU.png" width="410" align="middle"/>
-  <img src="https://i.imgur.com/ZLCy6wz.png" width="410" align="middle"/>
-</p>
+## Differences from OpenTabletDriver
 
-# PotTabletLite (osu! cursor-only driver)
-
-[`PotTabletLite/`](PotTabletLite/README.md) is a minimal Python driver for Windows and the XP-Pen Star G430S V2. It keeps only absolute cursor movement, for playing osu!, and has a small GUI for setting the tablet and screen areas.
-
-# Supported Tablets
-
-The status of all supported tablets can be seen here.
-
-- [Supported Tablets](https://opentabletdriver.net/Tablets)
-
-# Installation
-
-- [Windows](https://opentabletdriver.net/Wiki/Install/Windows)
-- [Linux](https://opentabletdriver.net/Wiki/Install/Linux)
-- [MacOS](https://opentabletdriver.net/Wiki/Install/MacOS)
-
-# Troubleshooting
-
-Please see our [website wiki](https://opentabletdriver.net/Wiki) for common issues and other quirks.
-
-# Running OpenTabletDriver binaries
-
-OpenTabletDriver functions as two separate processes that interact with each other seamlessly. The active program that does all of the tablet data handling is `OpenTabletDriver.Daemon`, while the GUI frontend is `OpenTabletDriver.UX.*`, where `*` depends on your platform<sup>1</sup>. The daemon must be started in order for anything to work, however the GUI is unnecessary. If you have existing settings, they should apply when the daemon starts.
-
-> <sup>1</sup>Windows uses `Wpf`, Linux uses `Gtk`, and MacOS uses `MacOS` respectively. This for the most part can be ignored if you don't build it from source as only the correct version will be provided.
-
-## Building OpenTabletDriver from source
-
-The requirements to build OpenTabletDriver are consistent across all platforms. Running OpenTabletDriver on each platform requires different dependencies.
-
-### All platforms
-
-- .NET 10 SDK (can be obtained from [here](https://dotnet.microsoft.com/download/dotnet/10.0) - You want the SDK for your platform, Linux users should install via package manager where possible)
-
-#### Windows
-
-Run `build.sh windows` to produce binary builds to 'bin' folder. These builds will run in portable mode by default.
-
-If you don't have WSL or some other way to access BASH with a working dotnet install, the deprecated Windows build script still exists in `build.ps1`.
-
-#### Linux
-
-Required packages (some packages may be pre-installed for your distribution):
-
-- libx11
-- libxrandr
-- libevdev2
-- GTK+3
-
-Run `./eng/bash/package.sh`. If a "package" build is desired,
-there are official support for the following packaging formats:
-
-| Package Format | Command |
+| OpenTabletDriver | PotTabletLite |
 | --- | --- |
-| Generic binary tarball (`.tar.gz`) | `./eng/bash/package.sh --package BinaryTarBall` |
-| [Simple binary package](./eng/bash/Simple/README-SimplePackage.md) (`.tar.gz`) | `./eng/bash/package.sh --package Simple` |
-| Debian package (`.deb`) | `./eng/bash/package.sh --package Debian` |
-| Red Hat package (`.rpm`) | `./eng/bash/package.sh --package RedHat` |
-| Generic package (for package maintainers) | `./eng/bash/package.sh --package Generic` |
+| Daemon + GUI talking over RPC | One small driver process; the GUI only edits a settings file |
+| Filters, plugins, binding system, output-mode pipeline | Nothing. Each report is parsed, multiplied by one precomputed matrix, and sent |
+| Pressure, tilt, pen/express buttons, Windows Ink | Not handled. Use the keyboard to click in osu! |
+| 300+ tablets | One tablet, hard-coded |
 
-The generic binary tarball is designed to be extracted from the root directory.
+On top of that, the hot loop:
 
-The simple package should only be used for testing new features on existing
-installs, as it does not install necessary system files.
+- blocks on the HID read and calls `SendInput` the moment a report arrives (no timers, no smoothing)
+- runs on a time-critical priority thread inside a high-priority process
+- keeps the Windows HID input queue at 2 reports, so a hiccup never replays stale positions
+- skips `SendInput` when the cursor position hasn't changed
+- runs with Python's cyclic garbage collector disabled, so there are no collection pauses
 
-You can also run `./build.sh linux` to generate files into `bin/`, but this does not include system files.
+`python bench.py` measures the Python work per report (parse, transform,
+dedupe) at under 1 µs. With the `ReadFile`/`SendInput` call overhead it is a few
+µs, under 1% of even a 1000 Hz report interval.
 
-#### MacOS
+## Requirements
 
-A newer version of Bash and Coreutils is required to build OpenTabletDriver. You can install them using Homebrew.
-Run `PATH="$(brew --prefix coreutils)/libexec/gnubin:$PATH" $(brew --prefix)/bin/bash ./eng/bash/package.sh -r osx-x64`.
+- Windows 10 or 11
+- [Python 3.8+](https://www.python.org/downloads/windows/) (64-bit recommended). Tick "Add python.exe to PATH" in the installer. **No pip packages are needed.**
+- The XP-Pen driver **uninstalled**, and OpenTabletDriver closed. Only one program can own the tablet.
 
-| Package Format | Command |
+## Getting it
+
+Clone the repository, or use *Code → Download ZIP* on GitHub and extract it:
+
+```
+git clone https://github.com/Potrosho/PotTabletDriver.git
+```
+
+## Usage
+
+1. Plug in the tablet.
+2. Double-click **`PotTabletLite.pyw`** to open the settings window.
+3. Set the **tablet area** (left). Type values, drag the blue area, or use
+   *Full area*, *Center* and *Match screen aspect ratio*. Values are in mm, X/Y is the
+   centre of the area, and rotation is in degrees.
+4. Set the **screen area** (right). Pick a monitor or *All monitors* from
+   *Cover*, or type and drag a custom area. Values are in pixels, and X/Y is the centre
+   measured from the top-left of the whole desktop (same as OpenTabletDriver).
+5. Click **Start driver**. Changes you **Save** while the driver runs apply immediately.
+6. You can close the settings window while you play; the driver keeps running.
+   Reopen it and click **Stop driver** to stop it.
+
+Already have an area in OpenTabletDriver? Click **Import from OpenTabletDriver**.
+It reads `%LOCALAPPDATA%\OpenTabletDriver\settings.json`. Then click Save.
+
+Options:
+
+- **Clip cursor to screen area** (on by default): pen positions outside the tablet area
+  stick to the edge of the screen area.
+- **Ignore input outside area**: pen positions outside the tablet area are dropped instead.
+
+### Without the GUI
+
+`start_driver.bat` runs the driver in a console window. Stop it with Ctrl+C.
+Equivalent: `python -m potlite.driver [--config PATH]` from this folder.
+
+Settings are stored in `%LOCALAPPDATA%\PotTabletLite\config.json`. When the GUI
+starts the driver, its log is written to `driver.log` in the same folder.
+
+### osu! settings
+
+Leave **"Map absolute raw input to the osu! window"** off, so the area set here is
+the one that applies. Raw input can be on or off.
+
+## Troubleshooting
+
+- **The cursor doesn't move / "Could not open tablet"**: another driver owns the
+  tablet. Uninstall the XP-Pen driver, quit OpenTabletDriver, then replug the tablet.
+  Check `driver.log`.
+- **The cursor jumps between two positions**: Windows is still treating the tablet as
+  a mouse in parallel. Replug the tablet while the driver is running so it gets the init
+  report again.
+- **After stopping the driver, the tablet behaves like a small mouse**: that's the
+  tablet's built-in mode. Replug it or start the driver again.
+- **Wrong monitor positions**: open the settings window again after changing
+  display layout or scaling. The driver itself follows layout changes automatically.
+
+## Project layout
+
+| Path | Purpose |
 | --- | --- |
-| Unsigned x64 Package | `./eng/bash/package.sh --runtime osx-x64 --package macos` |
-| Signed x64 Package | `./eng/bash/package.sh --signed true --runtime osx-x64 --package macos` |
-| Signed arm64 Package | `./eng/bash/package.sh --signed true --runtime osx-arm64 --package macos` |
+| `PotTabletLite.pyw` | Opens the settings window |
+| `start_driver.bat` | Runs the driver in a console window |
+| `potlite/driver.py` | The driver: reads the tablet, moves the cursor, reloads settings |
+| `potlite/gui.py` | Settings window (tkinter) |
+| `potlite/tablet.py` | XP-Pen Star G430S V2 specs and report parsing |
+| `potlite/config.py` | Settings file, OpenTabletDriver import, tablet → screen transform |
+| `potlite/win32.py` | Windows API bindings (HID, `SendInput`, monitors, priorities) |
+| `tests/` | Unit tests |
+| `bench.py` | Benchmark of the per-report processing |
 
-Packaging signed MacOS builds on Linux or Windows requires `rcodesign`.
+## Development
 
-As of [MacOS 11](https://developer.apple.com/documentation/macos-release-notes/macos-big-sur-11_0_1-universal-apps-release-notes/#Code-Signing), you **must** sign arm64 packages.
+The parsing, transform and hot-loop code is platform independent and tested:
 
-# Features
+```
+python -m unittest discover tests
+python bench.py
+```
 
-- Fully platform-native GUI
-  - Windows: `Windows Presentation Foundation`
-  - Linux: `GTK+3`
-  - MacOS: `MonoMac`
-- Multi-tablet support
-  - Handles multiple tablets from a large selection of models and
-    manufacturers, each with its own plugin pipeline and settings
-- Validated tablet specifications, ensuring the smoothest transition if
-  switching tablets
-- Fully fledged console tool
-  - Quickly acquire, change, load, or save settings
-  - Scripting support (json output)
-- Absolute cursor positioning
-  - Screen area and tablet area
-  - Center-anchored offsets
-  - Precise area rotation
-- Relative cursor positioning
-  - px/mm horizontal and vertical sensitivity
-- Advanced tablet feature compatibility
-  - Pressure output
-    - Windows: Needs Windows Ink OpenTabletDriver plugin for Windows Ink output
-      mode, and VMulti system driver
-    - Linux: Natively supported with "Linux Artist Mode" output mode
-    - MacOS: Natively supported in all output modes
-  - Pen tilt
-  - Tablet pad wheels/dials
-  - Auxiliary/Express Keys
-- Pen bindings
-  - Tip by pressure bindings
-  - Express ("Aux") key bindings
-  - Pen button bindings
-  - Mouse button bindings
-  - Wheel bindings
-  - Keyboard bindings
-  - Preset bindings
-  - External plugin bindings
-- Saving and loading settings
-  - Persistent settings
-  - Presets for quick-access to prior saved settings
-- Plugins
-  - Plugin Manager (via
-    [Plugin-Repository](https://github.com/OpenTabletDriver/Plugin-Repository))
-  - Filters, including asynchronous filters (interpolators)
-  - Output modes
-- Device debugging tools
-  - Tablet data analyzer ("Tablet Debugger")
-  - USB Device String readings
-- Automatic version update notification
-  - Can be disabled with `--skipupdate` command line flag
-- Vendor driver area conversions
-  - Supports transforming your Wacom / XP-Pen / Huion / Gaomon / VEIKK area
-- Standalone daemon, for low-spec or headless systems.
+`potlite/win32.py` is the only Windows-specific module. It contains ctypes bindings for
+the HID API, `SendInput`, monitor enumeration and priorities.
 
-# Contributing to OpenTabletDriver
+## Credits and license
 
-If you wish to contribute to OpenTabletDriver, check out the [issue
-tracker](https://github.com/OpenTabletDriver/OpenTabletDriver/issues). When
-creating pull requests, follow the guidelines outlined in our [contribution
-guidelines](CONTRIBUTING.md).
+Tablet data, report parsing and transform math are derived from
+[OpenTabletDriver](https://github.com/OpenTabletDriver/OpenTabletDriver).
+Thanks to the OpenTabletDriver contributors. This repository was originally a
+fork of OpenTabletDriver; the original code is still in the git history.
 
-If you have any issues or suggestions, [open an issue
-ticket](https://github.com/OpenTabletDriver/OpenTabletDriver/issues/new/choose)
-and fill out the template with relevant information. We welcome both bug
-reports, as well as new tablets to add support for. In many cases adding support
-for a new tablet is quite easy.
-
-For issues and PRs related to OpenTabletDriver's [web page](https://opentabletdriver.net), see the repository [here](https://github.com/OpenTabletDriver/opentabletdriver.github.io).
-
-### Supporting a new tablet
-
-If you'd like us to add support for a new tablet, open an issue or join our
-[discord](https://discord.gg/9bcMaPkVAR) asking for support. *We generally
-prefer that adding support for a tablet be done through discord, due to the
-back-and-forth involved*.
-
-We'll have you do a few things like making a recording of the data sent by your
-tablet using our built-in tablet debugging tool, testing features of the tablet
-(on-tablet buttons, pen buttons, pen pressure, etc) with different configs we'll
-send you to try.
-
-You're also of course welcome to open a PR adding support for it yourself, if
-you have a good grasp on what's involved.
-
-Generally this process is relatively easy, especially if it's for a tablet
-manufacturer we already have support for on other tablets.
+Licensed under LGPL-3.0-or-later, the same as OpenTabletDriver. See [LICENSE](LICENSE).
