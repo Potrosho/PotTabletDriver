@@ -12,6 +12,10 @@ OpenTabletDriver is an open source, cross platform, user mode tablet driver. The
   <img src="https://i.imgur.com/ZLCy6wz.png" width="410" align="middle"/>
 </p>
 
+# PotTabletLite (osu! cursor-only driver)
+
+[`PotTabletLite/`](PotTabletLite/README.md) is a minimal Python driver for Windows and the XP-Pen Star G430S V2. It keeps only absolute cursor movement, for playing osu!, and has a small GUI for setting the tablet and screen areas.
+
 # Supported Tablets
 
 The status of all supported tablets can be seen here.
