@@ -14,9 +14,10 @@
     --area-edge: rgba(77, 163, 255, 0.9);
     --pen: #ffffff;
     --pen-touch: #ff5ca8;  /* dot and trail colour while the tip touches */
-    --key: rgba(20, 20, 24, 0.75);
-    --key-edge: rgba(255, 255, 255, 0.25);
-    --key-down: #ff5ca8;   /* key box colour while pressed */
+    --keys-panel: rgba(14, 14, 20, 0.7);
+    --key-1: #5aa9ff;      /* first key (E): box, bars and BPM */
+    --key-2: #5ee08a;      /* second key (R) */
+    --key-text: #ffffff;
   }
   html, body { margin: 0; background: transparent; overflow: hidden; font-family: "Segoe UI", sans-serif; }
   #overlay {
@@ -27,34 +28,24 @@
     width: var(--width);
   }
   canvas { display: block; width: 100%; }
-  #keys { display: flex; gap: 10px; margin-bottom: 10px; }
+  #keys { margin-bottom: 10px; }
   #keys.hidden { visibility: hidden; }  /* keeps the tablet from moving when keys hide */
-  .key {
-    flex: 1;
-    padding: 8px 0;
-    border: 2px solid var(--key-edge);
-    border-radius: 10px;
-    background: var(--key);
-    color: #fff;
-    text-align: center;
-    transition: background 60ms;
-  }
-  .key.down { background: var(--key-down); border-color: var(--key-down); }
-  .key b { display: block; font-size: 22px; }
-  .key span { font-size: 14px; opacity: 0.8; }
 </style>
 </head>
 <body>
 <div id="overlay">
-  <div id="keys" class="hidden"></div>
+  <canvas id="keys" class="hidden"></canvas>
   <canvas id="c"></canvas>
 </div>
 <script>
   const TRAIL_MS = 250;  // how long the trail lasts
   const ONLY_WHILE_PLAYING = true;  // show keys only during a map (osu! stable); false = always
-  const FLASH_MS = 60;   // minimum time a key stays lit, so very short taps are still visible
+  const FLASH_MS = 60;   // minimum length of a press, so very short taps are still visible
+  const SCROLL = 0.25;   // press bars scroll speed, CSS pixels per ms
+  const ROW = 34, GAP = 8, PAD = 8;  // key row height, space between rows, panel padding (CSS px)
   const keysEl = document.getElementById("keys");
-  const keyBoxes = {};   // name -> {el, presses, litUntil}
+  const kctx = keysEl.getContext("2d");
+  const keys = {};       // name -> {presses, down, bars: [{start, end}], taps: [times]}
   const canvas = document.getElementById("c");
   const ctx = canvas.getContext("2d");
   const css = getComputedStyle(document.documentElement);
@@ -93,29 +84,117 @@
 
   function updateKeys() {
     keysEl.classList.toggle("hidden", ONLY_WHILE_PLAYING && !state.playing);
+    const now = performance.now();
     for (const [name, down, presses] of state.keys) {
-      let box = keyBoxes[name];
-      if (!box) {
-        const el = document.createElement("div");
-        el.className = "key";
-        el.innerHTML = "<b></b><span></span>";
-        el.querySelector("b").textContent = name;
-        keysEl.appendChild(el);
-        box = keyBoxes[name] = {el, presses, litUntil: 0};
+      const k = keys[name] ??= {presses, down: false, bars: [], taps: []};
+      const open = k.bars.at(-1);
+      if (presses !== k.presses) {
+        if (open && open.end === null) open.end = now;
+        // A tap can start and end between two updates; the count change still shows it.
+        k.bars.push({start: now, end: down ? null : now + FLASH_MS});
+        k.taps.push(now);
+      } else if (!down && open && open.end === null) {
+        open.end = Math.max(now, open.start + FLASH_MS);
       }
-      // A tap can start and end between two updates; the press count still shows it.
-      if (presses !== box.presses) box.litUntil = performance.now() + FLASH_MS;
-      box.presses = presses;
-      box.down = down;
-      box.el.querySelector("span").textContent = presses;
+      k.presses = presses;
+      k.down = down;
     }
+  }
+
+  function bpm(k, now) {
+    // osu! counts streams in 1/4 notes: one tap every 15000/bpm ms.
+    k.taps = k.taps.filter(t => now - t < 1000);
+    const n = k.taps.length;
+    return n < 2 ? 0 : Math.round(15000 * (n - 1) / (k.taps[n - 1] - k.taps[0]));
+  }
+
+  function drawKeys(now) {
+    const names = Object.keys(keys);
+    const r = devicePixelRatio;
+    const h = PAD * 2 + names.length * ROW + (names.length - 1) * GAP;
+    if (keysEl.height !== Math.round(h * r)) {
+      keysEl.width = keysEl.clientWidth * r;
+      keysEl.height = Math.round(h * r);
+      keysEl.style.height = h + "px";
+    }
+    const c = kctx, w = keysEl.width / r;
+    c.setTransform(r, 0, 0, r, 0, 0);
+    c.clearRect(0, 0, w, h);
+    c.fillStyle = color("--keys-panel");
+    c.beginPath();
+    c.roundRect(0, 0, w, h, 12);
+    c.fill();
+
+    const boxX = 64, box = ROW - 4, laneX = 150, laneW = w - laneX - PAD;
+    names.forEach((name, i) => {
+      const k = keys[name];
+      const accent = color("--key-" + (i + 1)) || color("--key-1");
+      const y = PAD + i * (ROW + GAP), mid = y + ROW / 2;
+      const lit = k.down || (k.bars.length && k.bars.at(-1).end > now);
+      c.textBaseline = "middle";
+
+      const b = bpm(k, now);
+      c.font = "600 13px 'Segoe UI', sans-serif";
+      c.textAlign = "right";
+      c.fillStyle = accent;
+      c.globalAlpha = b ? 1 : 0.4;
+      c.fillText(b + "bpm", boxX - 8, mid);
+      c.globalAlpha = 1;
+
+      c.save();
+      c.beginPath();
+      c.roundRect(boxX, mid - box / 2, box, box, 7);
+      c.lineWidth = 2;
+      c.strokeStyle = accent;
+      if (lit) {
+        c.shadowColor = accent;
+        c.shadowBlur = 14;
+        c.fillStyle = accent;
+        c.fill();
+      } else {
+        c.fillStyle = "rgba(0, 0, 0, 0.35)";
+        c.fill();
+      }
+      c.stroke();
+      c.restore();
+      c.font = "700 16px 'Segoe UI', sans-serif";
+      c.textAlign = "center";
+      c.fillStyle = lit ? "#0e0e14" : accent;
+      c.fillText(name, boxX + box / 2, mid + 1);
+
+      c.font = "600 15px 'Segoe UI', sans-serif";
+      c.textAlign = "left";
+      c.fillStyle = color("--key-text");
+      c.fillText(k.presses, boxX + box + 8, mid);
+
+      // Press bars start at the lane's left edge and scroll right, fading out.
+      k.bars = k.bars.filter(p => p.end === null || (now - p.end) * SCROLL < laneW);
+      const fade = c.createLinearGradient(laneX, 0, laneX + laneW, 0);
+      fade.addColorStop(0, accent);
+      fade.addColorStop(1, "transparent");
+      c.save();
+      c.beginPath();
+      c.rect(laneX, y, laneW, ROW);
+      c.clip();
+      c.fillStyle = fade;
+      c.shadowColor = accent;
+      c.shadowBlur = 8;
+      for (const p of k.bars) {
+        const x0 = laneX + (now - Math.min(p.end ?? now, now)) * SCROLL;
+        const x1 = laneX + (now - p.start) * SCROLL;
+        c.beginPath();
+        c.roundRect(x0, mid - ROW * 0.3, Math.max(x1 - x0, 3), ROW * 0.6, 4);
+        c.fill();
+      }
+      c.restore();
+    });
   }
 
   function draw(now) {
     requestAnimationFrame(draw);
-    for (const box of Object.values(keyBoxes)) box.el.classList.toggle("down", box.down || now < box.litUntil);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     if (!state) return;
+    drawKeys(now);
 
     const s = canvas.width / state.tablet[0];  // canvas pixels per mm
     const line = Math.max(1, s * 0.4);
