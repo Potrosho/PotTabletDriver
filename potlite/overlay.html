@@ -14,6 +14,7 @@
     --area-edge: rgba(77, 163, 255, 0.9);
     --area-out: #ff5c5c;   /* area outline glow while the pen is outside the area */
     --heat: #ffb347;       /* heatmap: where the pen spends its time */
+    --heatmap-width: 50%;  /* heatmap tablet size, relative to the main tablet */
     --pen: #ffffff;
     --pen-touch: #ff5ca8;  /* dot and trail colour while the tip touches */
     --keys-panel: rgba(14, 14, 20, 0.7);
@@ -30,6 +31,7 @@
     width: var(--width);
   }
   canvas { display: block; width: 100%; }
+  #heatmap { width: var(--heatmap-width); margin: 10px 0 0 auto; }  /* small, right-aligned under the tablet */
   /* Keys slide up and fade in (with a little overshoot) when a map starts, and sink and
      fade out when it ends. They keep their space, so the tablet never moves. */
   #keys {
@@ -49,6 +51,7 @@
 <div id="overlay">
   <canvas id="keys" class="hidden"></canvas>
   <canvas id="c"></canvas>
+  <canvas id="heatmap"></canvas>
 </div>
 <script>
   const TRAIL_MS = 250;  // how long the trail lasts
@@ -68,6 +71,8 @@
   let wasPlaying = false;
   const canvas = document.getElementById("c");
   const ctx = canvas.getContext("2d");
+  const heatmap = document.getElementById("heatmap");
+  const mctx = heatmap.getContext("2d");
   const css = getComputedStyle(document.documentElement);
   const color = name => css.getPropertyValue(name).trim();
 
@@ -89,10 +94,11 @@
       heat.height = Math.ceil(hMm);
       heatGrid = new Float32Array(heat.width * heat.height);
     }
-    const w = canvas.clientWidth * devicePixelRatio;
-    canvas.width = w;
-    canvas.height = w * hMm / wMm;
-    canvas.style.height = canvas.clientWidth * hMm / wMm + "px";
+    for (const c of [canvas, heatmap]) {
+      c.width = c.clientWidth * devicePixelRatio;
+      c.height = c.width * hMm / wMm;
+      c.style.height = c.clientWidth * hMm / wMm + "px";
+    }
   }
 
   const events = new EventSource("/events");
@@ -253,7 +259,36 @@
     });
   }
 
+  function drawTablet(c, s, a, rot, glow) {
+    // Tablet outline and the (possibly rotated) area, with the out-of-area glow.
+    const line = Math.max(1, s * 0.4);
+    c.fillStyle = color("--tablet");
+    c.strokeStyle = color("--tablet-edge");
+    c.lineWidth = line;
+    c.beginPath();
+    c.roundRect(line / 2, line / 2, c.canvas.width - line, c.canvas.height - line, s * 3);
+    c.fill();
+    c.stroke();
+
+    c.save();
+    c.translate(a.x * s, a.y * s);
+    c.rotate(rot);
+    c.fillStyle = color("--area");
+    c.strokeStyle = color("--area-edge");
+    c.fillRect(-a.width * s / 2, -a.height * s / 2, a.width * s, a.height * s);
+    c.strokeRect(-a.width * s / 2, -a.height * s / 2, a.width * s, a.height * s);
+    if (glow) {
+      c.globalAlpha = glow;
+      c.strokeStyle = c.shadowColor = color("--area-out");
+      c.shadowBlur = s * 4;
+      c.lineWidth = line * 2;
+      c.strokeRect(-a.width * s / 2, -a.height * s / 2, a.width * s, a.height * s);
+    }
+    c.restore();
+  }
+
   function drawHeat(dt, s) {
+    // Collects pen time at main-tablet scale ``s``; draws onto the small heatmap tablet.
     if (!heatGrid) return;
     const gw = heat.width, gh = heat.height;
     const decay = Math.pow(0.5, dt / HEAT_HALF_LIFE_MS);
@@ -274,30 +309,23 @@
     hctx.fillStyle = color("--heat");
     hctx.fillRect(0, 0, gw, gh);
     hctx.globalCompositeOperation = "source-over";
-    ctx.save();
-    ctx.filter = `blur(${s * 2}px)`;
-    ctx.drawImage(heat, 0, 0, gw * s, gh * s);
-    ctx.restore();
+    const ms = heatmap.width / state.tablet[0];
+    mctx.save();
+    mctx.filter = `blur(${ms * 2}px)`;
+    mctx.drawImage(heat, 0, 0, gw * ms, gh * ms);
+    mctx.restore();
   }
 
   function draw(now) {
     requestAnimationFrame(draw);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+    mctx.clearRect(0, 0, heatmap.width, heatmap.height);
     if (!state) return;
     drawKeys(now);
 
     const s = canvas.width / state.tablet[0];  // canvas pixels per mm
-    const line = Math.max(1, s * 0.4);
     const dt = lastFrame ? now - lastFrame : 0;
     lastFrame = now;
-
-    ctx.fillStyle = color("--tablet");
-    ctx.strokeStyle = color("--tablet-edge");
-    ctx.lineWidth = line;
-    ctx.beginPath();
-    ctx.roundRect(line / 2, line / 2, canvas.width - line, canvas.height - line, s * 3);
-    ctx.fill();
-    ctx.stroke();
 
     // Is the pen outside the (possibly rotated) area? Check in the area's own coordinates.
     const a = state.area;
@@ -310,21 +338,8 @@
     }
     const glow = Math.max(0, 1 - (now - lastOut) / OUT_FADE_MS);
 
-    ctx.save();
-    ctx.translate(a.x * s, a.y * s);
-    ctx.rotate(rot);
-    ctx.fillStyle = color("--area");
-    ctx.strokeStyle = color("--area-edge");
-    ctx.fillRect(-a.width * s / 2, -a.height * s / 2, a.width * s, a.height * s);
-    ctx.strokeRect(-a.width * s / 2, -a.height * s / 2, a.width * s, a.height * s);
-    if (glow) {
-      ctx.globalAlpha = glow;
-      ctx.strokeStyle = ctx.shadowColor = color("--area-out");
-      ctx.shadowBlur = s * 4;
-      ctx.lineWidth = line * 2;
-      ctx.strokeRect(-a.width * s / 2, -a.height * s / 2, a.width * s, a.height * s);
-    }
-    ctx.restore();
+    drawTablet(ctx, s, a, rot, glow);
+    drawTablet(mctx, heatmap.width / state.tablet[0], a, rot, 0);
     drawHeat(dt, s);
 
     trail = trail.filter(p => now - p.t < TRAIL_MS);

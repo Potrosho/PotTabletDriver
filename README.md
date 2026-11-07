@@ -79,8 +79,8 @@ Options:
 
 The driver can show a live view of your tablet for streaming: the tablet, your area,
 and the pen as a dot with a short fading trail. The dot and trail turn pink while the
-tip touches the tablet. An orange heatmap builds up where your pen spends its time (it
-fades by half every 20 seconds), and the area outline glows red whenever the pen leaves
+tip touches the tablet. A smaller tablet underneath shows an orange heatmap of where your
+pen spends its time (it fades by half every 20 seconds; size it with `--heatmap-width`), and the area outline glows red whenever the pen leaves
 the area.
 
 It's always on while the driver runs, whether you start it from the settings window or
