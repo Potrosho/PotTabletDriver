@@ -14,21 +14,47 @@
     --area-edge: rgba(77, 163, 255, 0.9);
     --pen: #ffffff;
     --pen-touch: #ff5ca8;  /* dot and trail colour while the tip touches */
+    --key: rgba(20, 20, 24, 0.75);
+    --key-edge: rgba(255, 255, 255, 0.25);
+    --key-down: #ff5ca8;   /* key box colour while pressed */
   }
-  html, body { margin: 0; background: transparent; overflow: hidden; }
-  canvas {
+  html, body { margin: 0; background: transparent; overflow: hidden; font-family: "Segoe UI", sans-serif; }
+  #overlay {
     position: absolute;
     right: var(--right);
     top: 50%;
     transform: translateY(-50%);
     width: var(--width);
   }
+  canvas { display: block; width: 100%; }
+  #keys { display: flex; gap: 10px; margin-bottom: 10px; }
+  #keys.hidden { visibility: hidden; }  /* keeps the tablet from moving when keys hide */
+  .key {
+    flex: 1;
+    padding: 8px 0;
+    border: 2px solid var(--key-edge);
+    border-radius: 10px;
+    background: var(--key);
+    color: #fff;
+    text-align: center;
+    transition: background 60ms;
+  }
+  .key.down { background: var(--key-down); border-color: var(--key-down); }
+  .key b { display: block; font-size: 22px; }
+  .key span { font-size: 14px; opacity: 0.8; }
 </style>
 </head>
 <body>
-<canvas id="c"></canvas>
+<div id="overlay">
+  <div id="keys" class="hidden"></div>
+  <canvas id="c"></canvas>
+</div>
 <script>
   const TRAIL_MS = 250;  // how long the trail lasts
+  const ONLY_WHILE_PLAYING = true;  // show keys only during a map (osu! stable); false = always
+  const FLASH_MS = 60;   // minimum time a key stays lit, so very short taps are still visible
+  const keysEl = document.getElementById("keys");
+  const keyBoxes = {};   // name -> {el, presses, litUntil}
   const canvas = document.getElementById("c");
   const ctx = canvas.getContext("2d");
   const css = getComputedStyle(document.documentElement);
@@ -52,6 +78,7 @@
     const first = !state;
     state = JSON.parse(e.data);
     if (first) size();
+    updateKeys();
     if (state.pen) {
       const [x, y, touch] = state.pen;
       const [, , maxX, maxY] = state.tablet;
@@ -61,11 +88,32 @@
       pen = null;
     }
   };
-  events.onerror = () => { state = null; pen = null; trail = []; };  // driver stopped; EventSource retries by itself
+  events.onerror = () => { state = null; pen = null; trail = []; keysEl.classList.add("hidden"); };  // driver stopped; EventSource retries by itself
   addEventListener("resize", size);
+
+  function updateKeys() {
+    keysEl.classList.toggle("hidden", ONLY_WHILE_PLAYING && !state.playing);
+    for (const [name, down, presses] of state.keys) {
+      let box = keyBoxes[name];
+      if (!box) {
+        const el = document.createElement("div");
+        el.className = "key";
+        el.innerHTML = "<b></b><span></span>";
+        el.querySelector("b").textContent = name;
+        keysEl.appendChild(el);
+        box = keyBoxes[name] = {el, presses, litUntil: 0};
+      }
+      // A tap can start and end between two updates; the press count still shows it.
+      if (presses !== box.presses) box.litUntil = performance.now() + FLASH_MS;
+      box.presses = presses;
+      box.down = down;
+      box.el.querySelector("span").textContent = presses;
+    }
+  }
 
   function draw(now) {
     requestAnimationFrame(draw);
+    for (const box of Object.values(keyBoxes)) box.el.classList.toggle("down", box.down || now < box.litUntil);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     if (!state) return;
 

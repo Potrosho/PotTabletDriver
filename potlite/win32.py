@@ -341,3 +341,84 @@ def primary_screen_area():
         return monitor_screen_area(mon)
     _, _, vw, vh = virtual_screen()
     return {"width": float(vw), "height": float(vh), "x": vw / 2, "y": vh / 2}
+
+
+# --- keyboard watching and osu! state (stream overlay) ----------------------
+
+WM_INPUT = 0x00FF
+RID_INPUT = 0x10000003
+RIM_TYPEKEYBOARD = 1
+RIDEV_INPUTSINK = 0x00000100
+RI_KEY_BREAK = 0x01
+HWND_MESSAGE = wintypes.HWND(-3)
+
+
+class RAWINPUTDEVICE(ctypes.Structure):
+    _fields_ = [("usUsagePage", wintypes.USHORT), ("usUsage", wintypes.USHORT),
+                ("dwFlags", wintypes.DWORD), ("hwndTarget", wintypes.HWND)]
+
+
+class RAWINPUTHEADER(ctypes.Structure):
+    _fields_ = [("dwType", wintypes.DWORD), ("dwSize", wintypes.DWORD),
+                ("hDevice", wintypes.HANDLE), ("wParam", wintypes.WPARAM)]
+
+
+class RAWKEYBOARD(ctypes.Structure):
+    _fields_ = [("MakeCode", wintypes.USHORT), ("Flags", wintypes.USHORT),
+                ("Reserved", wintypes.USHORT), ("VKey", wintypes.USHORT),
+                ("Message", wintypes.UINT), ("ExtraInformation", wintypes.ULONG)]
+
+
+class RAWINPUT_KEYBOARD(ctypes.Structure):
+    _fields_ = [("header", RAWINPUTHEADER), ("keyboard", RAWKEYBOARD)]
+
+
+user32.CreateWindowExW.restype = wintypes.HWND
+user32.CreateWindowExW.argtypes = [wintypes.DWORD, wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.DWORD,
+                                   ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+                                   wintypes.HWND, wintypes.HMENU, wintypes.HINSTANCE, ctypes.c_void_p]
+user32.RegisterRawInputDevices.argtypes = [ctypes.POINTER(RAWINPUTDEVICE), wintypes.UINT, wintypes.UINT]
+user32.GetRawInputData.argtypes = [wintypes.HANDLE, wintypes.UINT, ctypes.c_void_p,
+                                   ctypes.POINTER(wintypes.UINT), wintypes.UINT]
+user32.GetRawInputData.restype = wintypes.UINT
+user32.GetMessageW.argtypes = [ctypes.POINTER(wintypes.MSG), wintypes.HWND, wintypes.UINT, wintypes.UINT]
+user32.DispatchMessageW.argtypes = [ctypes.POINTER(wintypes.MSG)]
+user32.GetForegroundWindow.restype = wintypes.HWND
+user32.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+
+
+def watch_keys(on_key):
+    """Call on_key(vk, down) for every key press/release, whichever window has focus.
+    Blocks forever, so run it on its own thread.
+
+    Uses Raw Input in listen-only mode: unlike a keyboard hook, Windows never waits
+    for this code before delivering keys to the game."""
+    # A message-only window of a built-in class: no window procedure of our own needed.
+    hwnd = user32.CreateWindowExW(0, "STATIC", None, 0, 0, 0, 0, 0, HWND_MESSAGE, None, None, None)
+    if not hwnd:
+        raise ctypes.WinError(ctypes.get_last_error())
+    device = RAWINPUTDEVICE(0x01, 0x06, RIDEV_INPUTSINK, hwnd)  # generic desktop / keyboard
+    if not user32.RegisterRawInputDevices(ctypes.byref(device), 1, ctypes.sizeof(device)):
+        raise ctypes.WinError(ctypes.get_last_error())
+
+    msg = wintypes.MSG()
+    data = RAWINPUT_KEYBOARD()
+    header_size = ctypes.sizeof(RAWINPUTHEADER)
+    while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) > 0:
+        if msg.message == WM_INPUT:
+            size = wintypes.UINT(ctypes.sizeof(data))
+            if (user32.GetRawInputData(msg.lParam, RID_INPUT, ctypes.byref(data), ctypes.byref(size),
+                                       header_size) != 0xFFFFFFFF
+                    and data.header.dwType == RIM_TYPEKEYBOARD):
+                on_key(data.keyboard.VKey, not data.keyboard.Flags & RI_KEY_BREAK)
+        user32.DispatchMessageW(ctypes.byref(msg))
+
+
+def osu_playing():
+    """True while osu! (stable) is focused and in a map: its window title is then
+    "osu!  - Artist - Title [Difficulty]" instead of just "osu!".
+    shortcut: title-based, so replays and the editor also count and osu!lazer is
+    never detected; reading osu!'s memory (as tosu does) would be exact."""
+    buf = ctypes.create_unicode_buffer(256)
+    user32.GetWindowTextW(user32.GetForegroundWindow(), buf, 256)
+    return buf.value.startswith("osu!") and " - " in buf.value

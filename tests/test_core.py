@@ -189,11 +189,22 @@ class OverlayTests(unittest.TestCase):
         driver.pump(read, buf, lambda *a: None, [config.build_transform(cfg, 1920, 1080)], pen)
         self.assertEqual(seen, [(100, 200, True), (300, 400, False), None])
 
+    def test_key_presses(self):
+        keys = overlay.new_keys()
+        E, R = ord("E"), ord("R")
+        for vk, down in ((E, True), (E, True), (E, True),  # held: Windows repeats the press
+                         (E, False), (R, True), (R, False), (E, True),
+                         (ord("Z"), True), (0x10, True)):  # other keys are ignored
+            overlay.on_key(keys, vk, down)
+        self.assertEqual(keys, {"E": [True, 2], "R": [False, 1]})
+
     def test_server(self):
         import urllib.request
         cfg = config.default_config(SCREEN)
         pen = [(5080, 3810, True)]
-        server = overlay.start(pen, [cfg], port=0)
+        keys = overlay.new_keys()
+        overlay.on_key(keys, ord("E"), True)
+        server = overlay.start(pen, [cfg], keys, [True], port=0)
         try:
             base = "http://127.0.0.1:%d/" % server.server_address[1]
             with urllib.request.urlopen(base, timeout=5) as r:
@@ -204,6 +215,8 @@ class OverlayTests(unittest.TestCase):
             self.assertEqual(msg["pen"], [5080, 3810, True])
             self.assertEqual(msg["area"], cfg["tablet"])
             self.assertEqual(msg["tablet"][2:], [tablet.MAX_X, tablet.MAX_Y])
+            self.assertEqual(msg["keys"], [["E", True, 1], ["R", False, 0]])
+            self.assertTrue(msg["playing"])
         finally:
             server.stop()
 

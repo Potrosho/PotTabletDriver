@@ -15,23 +15,41 @@ from . import tablet
 PORT = 37529
 URL = "http://localhost:%d/" % PORT
 FPS = 60
+KEYS = "ER"  # tap keys shown above the tablet
 
 _HTML_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "overlay.html")
 
 
-def snapshot(pen, cfg):
-    """JSON message for the page: tablet size, current area, pen (x, y, touching) or null."""
+def new_keys():
+    """Key state shared with the driver's key watcher: {name: [down, press_count]}."""
+    return {k: [False, 0] for k in KEYS}
+
+
+def on_key(keys, vk, down):
+    """Update ``keys`` for one key event (vk is a Windows virtual-key code)."""
+    state = keys.get(chr(vk)) if 0x30 <= vk <= 0x5A else None
+    if state is not None and state[0] != down:  # held keys repeat; count presses only
+        state[0] = down
+        state[1] += down
+
+
+def snapshot(pen, cfg, keys, playing):
+    """JSON message for the page: tablet size, current area, pen (x, y, touching) or null,
+    tap keys [name, down, presses] and whether a map is being played."""
     pos = pen[0]
     return json.dumps({
         "tablet": [tablet.WIDTH_MM, tablet.HEIGHT_MM, tablet.MAX_X, tablet.MAX_Y],
         "area": cfg[0]["tablet"],
         "pen": list(pos) if pos else None,
+        "keys": [[k, s[0], s[1]] for k, s in keys.items()],
+        "playing": playing[0],
     }, separators=(",", ":"))
 
 
-def start(pen, cfg, port=PORT):
-    """Serve on localhost in a background thread. ``pen`` and ``cfg`` are the
-    driver's one-item holders. Returns the server; call stop() on it to end."""
+def start(pen, cfg, keys, playing, port=PORT):
+    """Serve on localhost in a background thread. ``pen``, ``cfg`` and ``playing`` are
+    the driver's one-item holders, ``keys`` comes from new_keys(). Returns the server;
+    call stop() on it to end."""
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -56,7 +74,7 @@ def start(pen, cfg, port=PORT):
             last = None
             try:
                 while not server.stopping:
-                    msg = snapshot(pen, cfg)
+                    msg = snapshot(pen, cfg, keys, playing)
                     if msg != last:
                         last = msg
                         self.wfile.write(b"data: " + msg.encode() + b"\n\n")

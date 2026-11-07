@@ -89,6 +89,14 @@ with `start_driver.bat`. Nothing else needs to be started.
    width and height to your canvas size (e.g. 1920 x 1080). The URL is also shown in the
    settings window.
 
+Above the tablet, two boxes show your tap keys, **E** and **R**. Each lights up while
+pressed and shows a press count since the driver started. They only appear while you're
+playing a map in osu! (stable): the driver sees this from the osu! window title, so
+replays and the editor count too. On osu!lazer the title never changes, so set
+`ONLY_WHILE_PLAYING` to `false` in `potlite/overlay.html` to always show them. To use
+other keys, change `KEYS` in `potlite/overlay.py`. Keys are read with Windows Raw Input,
+which only listens: it can't delay your keypresses in the game.
+
 The page is transparent, with the tablet drawn at the middle-right of the canvas.
 To change its size, position or colours, edit the variables at the top of
 `potlite/overlay.html`, then click *Refresh cache of current page* in the Browser

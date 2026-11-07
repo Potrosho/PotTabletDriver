@@ -180,6 +180,8 @@ def run(config_path):
 
     cfg_holder = [None]
     pen = [None]
+    keys = overlay.new_keys()
+    playing = [False]
 
     def build():
         cfg = config.load(config_path, win32.primary_screen_area())
@@ -207,8 +209,10 @@ def run(config_path):
                      name="tablet-reader", daemon=True).start()
     # Always on: it costs nothing until OBS connects.
     try:
-        overlay.start(pen, cfg_holder)
+        overlay.start(pen, cfg_holder, keys, playing)
         log("Stream overlay: %s" % overlay.URL)
+        threading.Thread(target=win32.watch_keys, args=(functools.partial(overlay.on_key, keys),),
+                         name="key-watcher", daemon=True).start()
     except OSError as ex:
         log("Could not start the stream overlay (port %d in use?): %s" % (overlay.PORT, ex))
 
@@ -216,6 +220,7 @@ def run(config_path):
     try:
         while True:
             time.sleep(0.5)
+            playing[0] = win32.osu_playing()
             new_state = current_state()
             if new_state != state:
                 state = new_state
