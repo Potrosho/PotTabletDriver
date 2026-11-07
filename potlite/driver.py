@@ -180,7 +180,6 @@ def run(config_path):
 
     cfg_holder = [None]
     pen = [None]
-    stream = None
 
     def build():
         cfg = config.load(config_path, win32.primary_screen_area())
@@ -188,20 +187,6 @@ def run(config_path):
         transform = config.build_transform(cfg, vw, vh)
         cfg_holder[0] = cfg
         return transform
-
-    def update_overlay(stream):
-        """Start or stop the overlay server to match the settings; returns the server or None."""
-        if cfg_holder[0]["overlay"] and stream is None:
-            try:
-                stream = overlay.start(pen, cfg_holder)
-                log("Stream overlay: %s" % overlay.URL)
-            except OSError as ex:
-                log("Could not start the stream overlay: %s" % ex)
-        elif not cfg_holder[0]["overlay"] and stream is not None:
-            stream.stop()
-            stream = None
-            log("Stream overlay stopped")
-        return stream
 
     state = current_state()
     holder = [build()]
@@ -220,7 +205,12 @@ def run(config_path):
 
     threading.Thread(target=_reader_thread, args=(win32, holder, pen, log),
                      name="tablet-reader", daemon=True).start()
-    stream = update_overlay(stream)
+    # Always on: it costs nothing until OBS connects.
+    try:
+        overlay.start(pen, cfg_holder)
+        log("Stream overlay: %s" % overlay.URL)
+    except OSError as ex:
+        log("Could not start the stream overlay (port %d in use?): %s" % (overlay.PORT, ex))
 
     # Main thread: pick up settings or monitor layout changes without restarting.
     try:
@@ -232,7 +222,6 @@ def run(config_path):
                 try:
                     holder[0] = build()
                     log("Settings reloaded")
-                    stream = update_overlay(stream)
                 except (KeyError, ValueError, ZeroDivisionError) as ex:
                     log("Ignoring invalid settings: %s" % ex)
     except KeyboardInterrupt:

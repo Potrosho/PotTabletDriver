@@ -81,16 +81,20 @@ The driver can show a live view of your tablet for streaming: the tablet, your a
 and the pen as a dot with a short fading trail. The dot and trail turn pink while the
 tip touches the tablet.
 
-1. In the settings window, tick **Stream overlay** and click **Save**. The driver
-   must be running.
+It's always on while the driver runs, whether you start it from the settings window or
+with `start_driver.bat`. Nothing else needs to be started.
+
+1. Start the driver.
 2. In OBS, add a **Browser** source with URL `http://localhost:37529/`, and set its
-   width and height to your canvas size (e.g. 1920 x 1080).
+   width and height to your canvas size (e.g. 1920 x 1080). The URL is also shown in the
+   settings window.
 
 The page is transparent, with the tablet drawn at the middle-right of the canvas.
 To change its size, position or colours, edit the variables at the top of
 `potlite/overlay.html`, then click *Refresh cache of current page* in the Browser
 source's properties. The overlay runs on its own low-priority threads and only reads the
-latest pen position, so it doesn't slow down the cursor.
+latest pen position, so it doesn't slow down the cursor. Until OBS connects, it does
+nothing at all.
 
 ### Without the GUI
 

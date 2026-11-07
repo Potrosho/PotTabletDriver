@@ -129,15 +129,13 @@ class App:
         opts.grid(row=3, column=0, columnspan=2, pady=(8, 0), sticky="w")
         self.clipping = tk.BooleanVar()
         self.limiting = tk.BooleanVar()
-        ttk.Checkbutton(opts, text="Clip cursor to screen area", variable=self.clipping).grid(row=0, column=0)
+        ttk.Checkbutton(opts, text="Clip cursor to screen area", variable=self.clipping).grid(row=0, column=0, sticky="w")
         ttk.Checkbutton(opts, text="Ignore input outside area",
-                        variable=self.limiting).grid(row=0, column=1, padx=(12, 0))
+                        variable=self.limiting).grid(row=0, column=1, sticky="w", padx=(12, 0))
         self.tap_click = tk.BooleanVar()
         ttk.Checkbutton(opts, text="Left click when the pen touches the tablet",
                         variable=self.tap_click).grid(row=1, column=0, columnspan=2, sticky="w", pady=(4, 0))
-        self.overlay = tk.BooleanVar()
-        ttk.Checkbutton(opts, text="Stream overlay (OBS Browser source)",
-                        variable=self.overlay).grid(row=2, column=0, sticky="w", pady=(4, 0))
+        ttk.Label(opts, text="Stream overlay (OBS Browser source):").grid(row=2, column=0, sticky="w", pady=(4, 0))
         url = ttk.Entry(opts, width=26)
         url.insert(0, overlay.URL)
         url.configure(state="readonly")  # selectable, so the URL can be copied into OBS
@@ -164,7 +162,6 @@ class App:
         self.clipping.set(self.cfg["clipping"])
         self.limiting.set(self.cfg["limiting"])
         self.tap_click.set(self.cfg["tap_click"])
-        self.overlay.set(self.cfg["overlay"])
         self._redraw()
 
     def _collect(self):
@@ -175,7 +172,7 @@ class App:
             raise ValueError("Area width and height must be greater than zero.")
         return {"tablet": t, "screen": s,
                 "clipping": self.clipping.get(), "limiting": self.limiting.get(),
-                "tap_click": self.tap_click.get(), "overlay": self.overlay.get()}
+                "tap_click": self.tap_click.get()}
 
     def _save(self):
         try:
