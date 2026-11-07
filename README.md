@@ -103,8 +103,8 @@ which only listens: it can't delay your keypresses in the game.
 
 The page is transparent, with the tablet drawn at the middle-right of the canvas.
 To change its size, position or colours, edit the variables at the top of
-`potlite/overlay.html`, then click *Refresh cache of current page* in the Browser
-source's properties. The overlay runs on its own low-priority threads and only reads the
+`potlite/overlay.html`. Open overlays (OBS or a browser tab) reload themselves when the
+file changes or the driver is updated. The overlay runs on its own low-priority threads and only reads the
 latest pen position, so it doesn't slow down the cursor. Until OBS connects, it does
 nothing at all.
 

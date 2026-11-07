@@ -43,9 +43,11 @@ def is_map_title(title):
 
 def snapshot(pen, cfg, keys, playing):
     """JSON message for the page: tablet size, current area, pen (x, y, touching) or null,
-    tap keys [name, down, presses] and whether a map is being played."""
+    tap keys [name, down, presses], whether a map is being played, and the page
+    version, so an open page reloads itself after overlay.html changes."""
     pos = pen[0]
     return json.dumps({
+        "page": os.stat(_HTML_PATH).st_mtime_ns,
         "tablet": [tablet.WIDTH_MM, tablet.HEIGHT_MM, tablet.MAX_X, tablet.MAX_Y],
         "area": cfg[0]["tablet"],
         "pen": list(pos) if pos else None,
@@ -68,6 +70,7 @@ def start(pen, cfg, keys, playing, port=PORT):
                     body = f.read()
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)

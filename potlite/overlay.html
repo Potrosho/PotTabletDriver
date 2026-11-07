@@ -52,6 +52,7 @@
   const color = name => css.getPropertyValue(name).trim();
 
   let state = null;   // last message from the driver
+  let pageVersion = null;  // overlay.html version this page was loaded as
   let pen = null;     // current pen {x, y, t, touch} in canvas pixels
   let trail = [];     // recent pen positions
 
@@ -68,6 +69,9 @@
   events.onmessage = e => {
     const first = !state;
     state = JSON.parse(e.data);
+    // The driver was updated (it reconnects after a restart) or overlay.html edited: load the new page.
+    if (pageVersion !== null && pageVersion !== state.page) return location.reload();
+    pageVersion = state.page;
     if (first) size();
     updateKeys();
     if (state.pen) {
