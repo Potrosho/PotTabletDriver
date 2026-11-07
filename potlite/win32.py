@@ -414,11 +414,8 @@ def watch_keys(on_key):
         user32.DispatchMessageW(ctypes.byref(msg))
 
 
-def osu_playing():
-    """True while osu! (stable) is focused and in a map: its window title is then
-    "osu!  - Artist - Title [Difficulty]" instead of just "osu!".
-    shortcut: title-based, so replays and the editor also count and osu!lazer is
-    never detected; reading osu!'s memory (as tosu does) would be exact."""
+def foreground_title():
+    """Title of the window that currently has focus."""
     buf = ctypes.create_unicode_buffer(256)
     user32.GetWindowTextW(user32.GetForegroundWindow(), buf, 256)
-    return buf.value.startswith("osu!") and " - " in buf.value
+    return buf.value

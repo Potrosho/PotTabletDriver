@@ -217,10 +217,15 @@ def run(config_path):
         log("Could not start the stream overlay (port %d in use?): %s" % (overlay.PORT, ex))
 
     # Main thread: pick up settings or monitor layout changes without restarting.
+    last_title = None
     try:
         while True:
             time.sleep(0.5)
-            playing[0] = win32.osu_playing()
+            title = win32.foreground_title()
+            playing[0] = overlay.is_map_title(title)
+            if title != last_title and title.lower().startswith("osu"):
+                log("osu! window: %r -> %s" % (title, "playing" if playing[0] else "not playing"))
+            last_title = title
             new_state = current_state()
             if new_state != state:
                 state = new_state

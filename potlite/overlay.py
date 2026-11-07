@@ -33,6 +33,14 @@ def on_key(keys, vk, down):
         state[1] += down
 
 
+def is_map_title(title):
+    """True for osu! (stable)'s window title while in a map: "osu!  - Artist - Title [Difficulty]"
+    instead of just "osu!".
+    shortcut: title-based, so replays and the editor also count and osu!lazer is
+    never detected; reading osu!'s memory (as tosu does) would be exact."""
+    return title.startswith("osu!") and " - " in title
+
+
 def snapshot(pen, cfg, keys, playing):
     """JSON message for the page: tablet size, current area, pen (x, y, touching) or null,
     tap keys [name, down, presses] and whether a map is being played."""

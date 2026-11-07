@@ -189,6 +189,12 @@ class OverlayTests(unittest.TestCase):
         driver.pump(read, buf, lambda *a: None, [config.build_transform(cfg, 1920, 1080)], pen)
         self.assertEqual(seen, [(100, 200, True), (300, 400, False), None])
 
+    def test_map_title(self):
+        self.assertTrue(overlay.is_map_title("osu!  - Camellia - Exit This Earth's Atomosphere [Evolution]"))
+        self.assertTrue(overlay.is_map_title("osu!cuttingedge b20240101 - Artist - Title [Insane]"))
+        for title in ("osu!", "osu!cuttingedge b20240101", "Untitled - Notepad", ""):
+            self.assertFalse(overlay.is_map_title(title), title)
+
     def test_key_presses(self):
         keys = overlay.new_keys()
         E, R = ord("E"), ord("R")
