@@ -41,6 +41,18 @@ def is_map_title(title):
     return title.startswith("osu!") and " - " in title
 
 
+def map_name(title):
+    """(song, difficulty) from a map window title, e.g. "osu!  - Artist - Title [Insane]"
+    -> ("Artist - Title", "Insane"); None when not in a map."""
+    if not is_map_title(title):
+        return None
+    song = title.split(" - ", 1)[1].strip()
+    if song.endswith("]") and " [" in song:
+        song, diff = song[:-1].rsplit(" [", 1)
+        return song, diff
+    return song, ""
+
+
 def snapshot(pen, cfg, keys, playing):
     """JSON message for the page: tablet size, current area, pen (x, y, touching) or null,
     tap keys [name, down, presses], whether a map is being played, and the page
@@ -52,13 +64,14 @@ def snapshot(pen, cfg, keys, playing):
         "area": cfg[0]["tablet"],
         "pen": list(pos) if pos else None,
         "keys": [[k, s[0], s[1]] for k, s in keys.items()],
-        "playing": playing[0],
+        "playing": bool(playing[0]),
+        "map": map_name(playing[0]),
     }, separators=(",", ":"))
 
 
 def start(pen, cfg, keys, playing, port=PORT):
-    """Serve on localhost in a background thread. ``pen``, ``cfg`` and ``playing`` are
-    the driver's one-item holders, ``keys`` comes from new_keys(). Returns the server;
+    """Serve on localhost in a background thread. ``pen``, ``cfg`` and ``playing`` (the
+    osu! map window title, or "" when not in a map) are the driver's one-item holders, ``keys`` comes from new_keys(). Returns the server;
     call stop() on it to end."""
 
     class Handler(BaseHTTPRequestHandler):

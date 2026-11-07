@@ -195,6 +195,13 @@ class OverlayTests(unittest.TestCase):
         for title in ("osu!", "osu!cuttingedge b20240101", "Untitled - Notepad", ""):
             self.assertFalse(overlay.is_map_title(title), title)
 
+    def test_map_name(self):
+        self.assertEqual(overlay.map_name("osu!  - rusino - Looping the Rooms feat. Hatsune Miku [Kuru! Kuru!]"),
+                         ("rusino - Looping the Rooms feat. Hatsune Miku", "Kuru! Kuru!"))
+        self.assertEqual(overlay.map_name("osu!  - A - B (Remix) [Exit]"), ("A - B (Remix)", "Exit"))
+        self.assertEqual(overlay.map_name("osu!  - A - B"), ("A - B", ""))
+        self.assertIsNone(overlay.map_name("osu!"))
+
     def test_key_presses(self):
         keys = overlay.new_keys()
         E, R = ord("E"), ord("R")
@@ -210,7 +217,7 @@ class OverlayTests(unittest.TestCase):
         pen = [(5080, 3810, True)]
         keys = overlay.new_keys()
         overlay.on_key(keys, ord("E"), True)
-        server = overlay.start(pen, [cfg], keys, [True], port=0)
+        server = overlay.start(pen, [cfg], keys, ["osu!  - Artist - Title [Insane]"], port=0)
         try:
             base = "http://127.0.0.1:%d/" % server.server_address[1]
             with urllib.request.urlopen(base, timeout=5) as r:
@@ -223,6 +230,7 @@ class OverlayTests(unittest.TestCase):
             self.assertEqual(msg["tablet"][2:], [tablet.MAX_X, tablet.MAX_Y])
             self.assertEqual(msg["keys"], [["E", True, 1], ["R", False, 0]])
             self.assertTrue(msg["playing"])
+            self.assertEqual(msg["map"], ["Artist - Title", "Insane"])
         finally:
             server.stop()
 

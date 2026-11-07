@@ -181,7 +181,7 @@ def run(config_path):
     cfg_holder = [None]
     pen = [None]
     keys = overlay.new_keys()
-    playing = [False]
+    playing = [""]  # osu! window title while in a map
 
     def build():
         cfg = config.load(config_path, win32.primary_screen_area())
@@ -222,7 +222,7 @@ def run(config_path):
         while True:
             time.sleep(0.5)
             titles = win32.osu_window_titles()
-            playing[0] = any(overlay.is_map_title(t) for t in titles)
+            playing[0] = next((t for t in titles if overlay.is_map_title(t)), "")
             if titles != last_titles:
                 log("osu! window: %s -> %s" % (", ".join(map(repr, titles)) or "closed",
                                                "playing" if playing[0] else "not playing"))

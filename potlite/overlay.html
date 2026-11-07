@@ -34,22 +34,35 @@
   #heatmap { width: var(--heatmap-width); margin: 10px 0 0 auto; }  /* small, right-aligned under the tablet */
   /* Keys slide up and fade in (with a little overshoot) when a map starts, and sink and
      fade out when it ends. They keep their space, so the tablet never moves. */
-  #keys {
+  #play {
     margin-bottom: 10px;
     transform-origin: 50% 100%;
     transition: opacity 280ms ease-out, transform 420ms cubic-bezier(0.34, 1.56, 0.64, 1), filter 280ms ease-out;
   }
-  #keys.hidden {
+  #play.hidden {
     opacity: 0;
     transform: translateY(14px) scale(0.92);
     filter: blur(4px);
     transition: opacity 200ms ease-in, transform 200ms ease-in, filter 200ms ease-in;
   }
+  #now {
+    margin-bottom: 8px;
+    padding: 8px 12px;
+    border-radius: 12px;
+    background: var(--keys-panel);
+    color: var(--key-text);
+  }
+  #song, #diff { min-height: 1.35em; }  /* fixed height, so the tablet never shifts */
+  #song { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #diff { font-size: 12px; color: var(--key-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 </style>
 </head>
 <body>
 <div id="overlay">
-  <canvas id="keys" class="hidden"></canvas>
+  <div id="play" class="hidden">
+    <div id="now"><div id="song"></div><div id="diff"></div></div>
+    <canvas id="keys"></canvas>
+  </div>
   <canvas id="c"></canvas>
   <canvas id="heatmap"></canvas>
 </div>
@@ -64,6 +77,7 @@
   const HEAT_STRENGTH = 1.8;        // higher = more of the heatmap shows at full colour
   const OUT_FADE_MS = 300;          // how long the out-of-area glow takes to fade
   const keysEl = document.getElementById("keys");
+  const playEl = document.getElementById("play");  // now playing + keys, shown during maps
   const kctx = keysEl.getContext("2d");
   const keys = {};       // name -> {presses, base, down, bars: [{start, end}], taps: [times]}
   const allTaps = {taps: []};  // both keys together, for the combined stream BPM
@@ -119,11 +133,18 @@
       pen = null;
     }
   };
-  events.onerror = () => { state = null; pen = null; trail = []; keysEl.classList.add("hidden"); };  // driver stopped; EventSource retries by itself
+  events.onerror = () => { state = null; pen = null; trail = []; playEl.classList.add("hidden"); };  // driver stopped; EventSource retries by itself
   addEventListener("resize", size);
 
   function updateKeys() {
-    keysEl.classList.toggle("hidden", ONLY_WHILE_PLAYING && !state.playing);
+    playEl.classList.toggle("hidden", ONLY_WHILE_PLAYING && !state.playing);
+    // Keep the last map's name while the panel animates away.
+    if (state.map) {
+      document.getElementById("song").textContent = state.map[0];
+      document.getElementById("diff").textContent = state.map[1];
+    }
+    // Always visible: no map title in osu!lazer, so the box would only ever be empty.
+    if (!ONLY_WHILE_PLAYING) document.getElementById("now").style.display = state.map ? "" : "none";
     const now = performance.now();
     const mapStart = state.playing && !wasPlaying;
     wasPlaying = state.playing;
