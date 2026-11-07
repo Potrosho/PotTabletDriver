@@ -35,6 +35,7 @@ def default_config(screen_area):
         "clipping": True,
         "limiting": False,
         "tap_click": True,
+        "overlay": False,
     }
 
 
@@ -53,7 +54,7 @@ def load(path, default_screen):
             for field, value in data[key].items():
                 if field in cfg[key] and isinstance(value, (int, float)):
                     cfg[key][field] = float(value)
-    for key in ("clipping", "limiting", "tap_click"):
+    for key in ("clipping", "limiting", "tap_click", "overlay"):
         if isinstance(data.get(key), bool):
             cfg[key] = data[key]
 

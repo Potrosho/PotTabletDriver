@@ -12,7 +12,7 @@ import sys
 import threading
 import time
 
-from . import config, tablet
+from . import config, overlay, tablet
 
 MUTEX_NAME = "Local\\PotTabletLiteDriver"
 
@@ -27,7 +27,7 @@ BUTTON_DOWN = 1
 BUTTON_UP = 2
 
 
-def pump(read, buf, emit, holder):
+def pump(read, buf, emit, holder, pen=None):
     """The hot loop. Returns only when ``read`` fails (device unplugged).
 
     read   -- callable filling ``buf`` with one report, returning falsy on error
@@ -35,7 +35,11 @@ def pump(read, buf, emit, holder):
               when button is BUTTON_DOWN/BUTTON_UP, pressing/releasing the left button
     holder -- one-item list with the current transform from config.build_transform;
               replaced from another thread when the settings change
+    pen    -- optional one-item list that receives (x, y, touching) in tablet units,
+              or None when the pen is out of range; read by the stream overlay
     """
+    if pen is None:
+        pen = [None]
     unpack = tablet.REPORT.unpack_from
     out_of_range = tablet.STATUS_OUT_OF_RANGE
     ignored = tablet.STATUS_IGNORED
@@ -46,6 +50,7 @@ def pump(read, buf, emit, holder):
     while read():
         status, x_lo, y_lo, pressure, x_hi, y_hi = unpack(buf)
         if status == out_of_range:
+            pen[0] = None
             # Pen left the tablet: never leave the button stuck down.
             if tip_down:
                 tip_down = False
@@ -58,6 +63,7 @@ def pump(read, buf, emit, holder):
 
         a, b, c, d, e, f, min_x, min_y, max_x, max_y, clipping, limiting, tap_click = holder[0]
 
+        pen[0] = (x, y, pressure > 0)
         touching = tap_click and pressure > 0
         button = BUTTON_NONE
         if touching != tip_down:
@@ -85,6 +91,7 @@ def pump(read, buf, emit, holder):
             last_y = iy
             emit(ix, iy, button)
 
+    pen[0] = None
     if tip_down:
         emit(last_x, last_y, BUTTON_UP)
 
@@ -110,7 +117,7 @@ def _make_emitter(win32):
     return emit
 
 
-def _reader_thread(win32, holder, log):
+def _reader_thread(win32, holder, pen, log):
     win32.raise_thread_priority()
     emit = _make_emitter(win32)
     waiting_logged = False
@@ -143,7 +150,7 @@ def _reader_thread(win32, holder, log):
             read_count = ctypes.c_ulong()
             read = functools.partial(win32.kernel32.ReadFile, device.handle, buf,
                                      tablet.INPUT_REPORT_LENGTH, ctypes.byref(read_count), None)
-            pump(read, buf, emit, holder)
+            pump(read, buf, emit, holder, pen)
             log("Tablet disconnected")
         finally:
             device.close()
@@ -171,10 +178,30 @@ def run(config_path):
             mtime = None
         return mtime, win32.virtual_screen()
 
+    cfg_holder = [None]
+    pen = [None]
+    stream = None
+
     def build():
         cfg = config.load(config_path, win32.primary_screen_area())
         _, _, vw, vh = win32.virtual_screen()
-        return config.build_transform(cfg, vw, vh)
+        transform = config.build_transform(cfg, vw, vh)
+        cfg_holder[0] = cfg
+        return transform
+
+    def update_overlay(stream):
+        """Start or stop the overlay server to match the settings; returns the server or None."""
+        if cfg_holder[0]["overlay"] and stream is None:
+            try:
+                stream = overlay.start(pen, cfg_holder)
+                log("Stream overlay: %s" % overlay.URL)
+            except OSError as ex:
+                log("Could not start the stream overlay: %s" % ex)
+        elif not cfg_holder[0]["overlay"] and stream is not None:
+            stream.stop()
+            stream = None
+            log("Stream overlay stopped")
+        return stream
 
     state = current_state()
     holder = [build()]
@@ -191,8 +218,9 @@ def run(config_path):
     # so the collector would only add pauses.
     gc.disable()
 
-    threading.Thread(target=_reader_thread, args=(win32, holder, log),
+    threading.Thread(target=_reader_thread, args=(win32, holder, pen, log),
                      name="tablet-reader", daemon=True).start()
+    stream = update_overlay(stream)
 
     # Main thread: pick up settings or monitor layout changes without restarting.
     try:
@@ -204,6 +232,7 @@ def run(config_path):
                 try:
                     holder[0] = build()
                     log("Settings reloaded")
+                    stream = update_overlay(stream)
                 except (KeyError, ValueError, ZeroDivisionError) as ex:
                     log("Ignoring invalid settings: %s" % ex)
     except KeyboardInterrupt:

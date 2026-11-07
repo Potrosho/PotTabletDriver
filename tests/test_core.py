@@ -14,7 +14,7 @@ import unittest
 # Make "potlite" importable when this file is run directly (e.g. VS Code's Run button).
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from potlite import config, driver, tablet  # noqa: E402
+from potlite import config, driver, overlay, tablet  # noqa: E402
 
 
 def report(status, x, y, pressure=0):
@@ -168,6 +168,44 @@ class PumpTests(unittest.TestCase):
             report(0xA0, 0, 0),                    # lift outside: release still sent
         ])
         self.assertEqual(out, [(32767, 32767, DOWN), (32767, 32767, UP)])
+
+
+class OverlayTests(unittest.TestCase):
+    def test_pump_shares_pen(self):
+        buf = bytearray(tablet.INPUT_REPORT_LENGTH)
+        seen = []
+        queue = [report(0xA1, 100, 200, pressure=3), report(0xA0, 300, 400), report(0xC0, 0, 0)]
+        pen = [None]
+
+        def read():
+            if pen[0] is not None or seen:
+                seen.append(pen[0])
+            if not queue:
+                return False
+            buf[:] = queue.pop(0)
+            return True
+
+        cfg = config.default_config(SCREEN)
+        driver.pump(read, buf, lambda *a: None, [config.build_transform(cfg, 1920, 1080)], pen)
+        self.assertEqual(seen, [(100, 200, True), (300, 400, False), None])
+
+    def test_server(self):
+        import urllib.request
+        cfg = config.default_config(SCREEN)
+        pen = [(5080, 3810, True)]
+        server = overlay.start(pen, [cfg], port=0)
+        try:
+            base = "http://127.0.0.1:%d/" % server.server_address[1]
+            with urllib.request.urlopen(base, timeout=5) as r:
+                self.assertIn(b"EventSource", r.read())
+            with urllib.request.urlopen(base + "events", timeout=5) as r:
+                line = r.readline()
+            msg = json.loads(line[len(b"data: "):])
+            self.assertEqual(msg["pen"], [5080, 3810, True])
+            self.assertEqual(msg["area"], cfg["tablet"])
+            self.assertEqual(msg["tablet"][2:], [tablet.MAX_X, tablet.MAX_Y])
+        finally:
+            server.stop()
 
 
 class ConfigTests(unittest.TestCase):

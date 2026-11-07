@@ -1,0 +1,118 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>PotTabletLite overlay</title>
+<style>
+  /* Tweak these to restyle the overlay. */
+  :root {
+    --width: 360px;        /* tablet width on screen; height follows the tablet's 4:3 shape */
+    --right: 40px;         /* gap from the right edge */
+    --tablet: rgba(20, 20, 24, 0.75);
+    --tablet-edge: rgba(255, 255, 255, 0.25);
+    --area: rgba(77, 163, 255, 0.18);
+    --area-edge: rgba(77, 163, 255, 0.9);
+    --pen: #ffffff;
+    --pen-touch: #ff5ca8;  /* dot and trail colour while the tip touches */
+  }
+  html, body { margin: 0; background: transparent; overflow: hidden; }
+  canvas {
+    position: absolute;
+    right: var(--right);
+    top: 50%;
+    transform: translateY(-50%);
+    width: var(--width);
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+  const TRAIL_MS = 250;  // how long the trail lasts
+  const canvas = document.getElementById("c");
+  const ctx = canvas.getContext("2d");
+  const css = getComputedStyle(document.documentElement);
+  const color = name => css.getPropertyValue(name).trim();
+
+  let state = null;   // last message from the driver
+  let pen = null;     // current pen {x, y, t, touch} in canvas pixels
+  let trail = [];     // recent pen positions
+
+  function size() {
+    if (!state) return;
+    const [wMm, hMm] = state.tablet;
+    const w = canvas.clientWidth * devicePixelRatio;
+    canvas.width = w;
+    canvas.height = w * hMm / wMm;
+    canvas.style.height = canvas.clientWidth * hMm / wMm + "px";
+  }
+
+  const events = new EventSource("/events");
+  events.onmessage = e => {
+    const first = !state;
+    state = JSON.parse(e.data);
+    if (first) size();
+    if (state.pen) {
+      const [x, y, touch] = state.pen;
+      const [, , maxX, maxY] = state.tablet;
+      pen = {x: x / maxX * canvas.width, y: y / maxY * canvas.height, t: performance.now(), touch};
+      trail.push(pen);
+    } else {
+      pen = null;
+    }
+  };
+  events.onerror = () => { state = null; pen = null; trail = []; };  // driver stopped; EventSource retries by itself
+  addEventListener("resize", size);
+
+  function draw(now) {
+    requestAnimationFrame(draw);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (!state) return;
+
+    const s = canvas.width / state.tablet[0];  // canvas pixels per mm
+    const line = Math.max(1, s * 0.4);
+
+    ctx.fillStyle = color("--tablet");
+    ctx.strokeStyle = color("--tablet-edge");
+    ctx.lineWidth = line;
+    ctx.beginPath();
+    ctx.roundRect(line / 2, line / 2, canvas.width - line, canvas.height - line, s * 3);
+    ctx.fill();
+    ctx.stroke();
+
+    const a = state.area;
+    ctx.save();
+    ctx.translate(a.x * s, a.y * s);
+    ctx.rotate(a.rotation * Math.PI / 180);
+    ctx.fillStyle = color("--area");
+    ctx.strokeStyle = color("--area-edge");
+    ctx.fillRect(-a.width * s / 2, -a.height * s / 2, a.width * s, a.height * s);
+    ctx.strokeRect(-a.width * s / 2, -a.height * s / 2, a.width * s, a.height * s);
+    ctx.restore();
+
+    trail = trail.filter(p => now - p.t < TRAIL_MS);
+    ctx.lineCap = "round";
+    for (let i = 1; i < trail.length; i++) {
+      const p = trail[i - 1], q = trail[i];
+      const life = 1 - (now - q.t) / TRAIL_MS;
+      ctx.globalAlpha = life;
+      ctx.strokeStyle = q.touch ? color("--pen-touch") : color("--pen");
+      ctx.lineWidth = s * 1.5 * life;
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+      ctx.lineTo(q.x, q.y);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+
+    if (pen) {
+      ctx.fillStyle = pen.touch ? color("--pen-touch") : color("--pen");
+      ctx.beginPath();
+      ctx.arc(pen.x, pen.y, s * (pen.touch ? 2.2 : 1.6), 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  requestAnimationFrame(draw);
+</script>
+</body>
+</html>

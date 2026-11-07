@@ -75,6 +75,23 @@ Options:
   held while the tip touches the tablet, the same rule OpenTabletDriver uses (any pressure
   counts). Turn it off if you only click with the keyboard.
 
+### Stream overlay (OBS)
+
+The driver can show a live view of your tablet for streaming: the tablet, your area,
+and the pen as a dot with a short fading trail. The dot and trail turn pink while the
+tip touches the tablet.
+
+1. In the settings window, tick **Stream overlay** and click **Save**. The driver
+   must be running.
+2. In OBS, add a **Browser** source with URL `http://localhost:37529/`, and set its
+   width and height to your canvas size (e.g. 1920 x 1080).
+
+The page is transparent, with the tablet drawn at the middle-right of the canvas.
+To change its size, position or colours, edit the variables at the top of
+`potlite/overlay.html`, then click *Refresh cache of current page* in the Browser
+source's properties. The overlay runs on its own low-priority threads and only reads the
+latest pen position, so it doesn't slow down the cursor.
+
 ### Without the GUI
 
 `start_driver.bat` runs the driver in a console window. Stop it with Ctrl+C.
@@ -111,6 +128,7 @@ the one that applies. Raw input can be on or off.
 | `potlite/gui.py` | Settings window (tkinter) |
 | `potlite/tablet.py` | XP-Pen Star G430S V2 specs and report parsing |
 | `potlite/config.py` | Settings file, OpenTabletDriver import, tablet → screen transform |
+| `potlite/overlay.py`, `potlite/overlay.html` | Stream overlay server and page (OBS Browser source) |
 | `potlite/win32.py` | Windows API bindings (HID, `SendInput`, monitors, priorities) |
 | `tests/` | Unit tests |
 | `bench.py` | Benchmark of the per-report processing |
