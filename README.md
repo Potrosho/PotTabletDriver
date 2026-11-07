@@ -79,7 +79,9 @@ Options:
 
 The driver can show a live view of your tablet for streaming: the tablet, your area,
 and the pen as a dot with a short fading trail. The dot and trail turn pink while the
-tip touches the tablet.
+tip touches the tablet. An orange heatmap builds up where your pen spends its time (it
+fades by half every 20 seconds), and the area outline glows red whenever the pen leaves
+the area.
 
 It's always on while the driver runs, whether you start it from the settings window or
 with `start_driver.bat`. Nothing else needs to be started.
@@ -89,10 +91,10 @@ with `start_driver.bat`. Nothing else needs to be started.
    width and height to your canvas size (e.g. 1920 x 1080). The URL is also shown in the
    settings window.
 
-Above the tablet, a row per tap key (**E** and **R**) shows that key's tapping speed in
-BPM (1/4 notes, like osu! streams; alternating splits a stream between the two rows), a key
-box that glows while pressed, a press count since the driver started, and press bars that
-scroll away to the right. Colours are the `--key-1`/`--key-2` variables in `overlay.html`. They only appear while you're
+Above the tablet, the top line shows your combined stream BPM (1/4 notes, like osu!) and the
+peak this map (counted for streams of 8+ taps). Below it, a row per tap key (**E** and **R**)
+shows that key's own BPM, a key box that glows while pressed, this map's press count, and
+press bars that scroll away to the right. Colours are the `--key-1`/`--key-2` variables in `overlay.html`. They only appear while you're
 playing a map in osu! (stable): the driver sees this from the osu! window title, so
 replays and the editor count too. osu! doesn't need focus, so the keys stay up if you
 click OBS mid-map. Testing in a normal browser? Keep the page visible next to osu!:

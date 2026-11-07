@@ -12,6 +12,8 @@
     --tablet-edge: rgba(255, 255, 255, 0.25);
     --area: rgba(77, 163, 255, 0.18);
     --area-edge: rgba(77, 163, 255, 0.9);
+    --area-out: #ff5c5c;   /* area outline glow while the pen is outside the area */
+    --heat: #ffb347;       /* heatmap: where the pen spends its time */
     --pen: #ffffff;
     --pen-touch: #ff5ca8;  /* dot and trail colour while the tip touches */
     --keys-panel: rgba(14, 14, 20, 0.7);
@@ -54,9 +56,16 @@
   const FLASH_MS = 60;   // minimum length of a press, so very short taps are still visible
   const SCROLL = 0.25;   // press bars scroll speed, CSS pixels per ms
   const ROW = 34, GAP = 8, PAD = 8;  // key row height, space between rows, panel padding (CSS px)
+  const HEADER = 30;     // height of the combined BPM / peak line above the key rows
+  const HEAT_HALF_LIFE_MS = 20000;  // heatmap fades to half in this time
+  const HEAT_STRENGTH = 1.8;        // higher = more of the heatmap shows at full colour
+  const OUT_FADE_MS = 300;          // how long the out-of-area glow takes to fade
   const keysEl = document.getElementById("keys");
   const kctx = keysEl.getContext("2d");
-  const keys = {};       // name -> {presses, down, bars: [{start, end}], taps: [times]}
+  const keys = {};       // name -> {presses, base, down, bars: [{start, end}], taps: [times]}
+  const allTaps = {taps: []};  // both keys together, for the combined stream BPM
+  let peak = 0;          // highest combined BPM this map
+  let wasPlaying = false;
   const canvas = document.getElementById("c");
   const ctx = canvas.getContext("2d");
   const css = getComputedStyle(document.documentElement);
@@ -66,10 +75,20 @@
   let pageVersion = null;  // overlay.html version this page was loaded as
   let pen = null;     // current pen {x, y, t, touch} in canvas pixels
   let trail = [];     // recent pen positions
+  let lastOut = -Infinity;  // when the pen was last seen outside the area
+  let lastFrame = 0;
+  const heat = document.createElement("canvas");  // 1 cell per mm, scaled up and blurred when drawn
+  const hctx = heat.getContext("2d");
+  let heatGrid = null;
 
   function size() {
     if (!state) return;
     const [wMm, hMm] = state.tablet;
+    if (!heatGrid) {
+      heat.width = Math.ceil(wMm);
+      heat.height = Math.ceil(hMm);
+      heatGrid = new Float32Array(heat.width * heat.height);
+    }
     const w = canvas.clientWidth * devicePixelRatio;
     canvas.width = w;
     canvas.height = w * hMm / wMm;
@@ -100,14 +119,25 @@
   function updateKeys() {
     keysEl.classList.toggle("hidden", ONLY_WHILE_PLAYING && !state.playing);
     const now = performance.now();
+    const mapStart = state.playing && !wasPlaying;
+    wasPlaying = state.playing;
+    if (mapStart) {
+      peak = 0;
+      allTaps.taps = [];
+    }
     for (const [name, down, presses] of state.keys) {
-      const k = keys[name] ??= {presses, down: false, bars: [], taps: []};
+      const k = keys[name] ??= {presses, base: presses, down: false, bars: [], taps: []};
+      if (mapStart) {
+        k.base = presses;  // counts show this map's presses only
+        k.taps = [];
+      }
       const open = k.bars.at(-1);
       if (presses !== k.presses) {
         if (open && open.end === null) open.end = now;
         // A tap can start and end between two updates; the count change still shows it.
         k.bars.push({start: now, end: down ? null : now + FLASH_MS});
         k.taps.push(now);
+        allTaps.taps.push(now);
       } else if (!down && open && open.end === null) {
         open.end = Math.max(now, open.start + FLASH_MS);
       }
@@ -116,17 +146,18 @@
     }
   }
 
-  function bpm(k, now) {
-    // osu! counts streams in 1/4 notes: one tap every 15000/bpm ms.
+  function bpm(k, now, minTaps = 3) {
+    // osu! counts streams in 1/4 notes: one tap every 15000/bpm ms. Needing a few taps
+    // keeps a single quick double-tap from reading as a huge BPM.
     k.taps = k.taps.filter(t => now - t < 1000);
     const n = k.taps.length;
-    return n < 2 ? 0 : Math.round(15000 * (n - 1) / (k.taps[n - 1] - k.taps[0]));
+    return n < minTaps ? 0 : Math.round(15000 * (n - 1) / (k.taps[n - 1] - k.taps[0]));
   }
 
   function drawKeys(now) {
     const names = Object.keys(keys);
     const r = devicePixelRatio;
-    const h = PAD * 2 + names.length * ROW + (names.length - 1) * GAP;
+    const h = PAD * 2 + HEADER + names.length * ROW + (names.length - 1) * GAP;
     if (keysEl.height !== Math.round(h * r)) {
       keysEl.width = keysEl.clientWidth * r;
       keysEl.height = Math.round(h * r);
@@ -140,11 +171,28 @@
     c.roundRect(0, 0, w, h, 12);
     c.fill();
 
+    // Combined stream BPM and this map's peak. The peak only counts real streams (8+ taps).
+    const total = bpm(allTaps, now);
+    if (allTaps.taps.length >= 8) peak = Math.max(peak, total);
+    c.textBaseline = "middle";
+    c.textAlign = "left";
+    c.font = "700 18px 'Segoe UI', sans-serif";
+    c.fillStyle = color("--key-text");
+    c.globalAlpha = total ? 1 : 0.4;
+    c.fillText(total + " bpm", PAD + 4, PAD + HEADER / 2);
+    c.globalAlpha = 1;
+    c.textAlign = "right";
+    c.font = "600 13px 'Segoe UI', sans-serif";
+    c.fillStyle = color("--key-text");
+    c.globalAlpha = 0.7;
+    c.fillText("peak " + peak, w - PAD - 4, PAD + HEADER / 2);
+    c.globalAlpha = 1;
+
     const boxX = 64, box = ROW - 4, laneX = 150, laneW = w - laneX - PAD;
     names.forEach((name, i) => {
       const k = keys[name];
       const accent = color("--key-" + (i + 1)) || color("--key-1");
-      const y = PAD + i * (ROW + GAP), mid = y + ROW / 2;
+      const y = PAD + HEADER + i * (ROW + GAP), mid = y + ROW / 2;
       const lit = k.down || (k.bars.length && k.bars.at(-1).end > now);
       c.textBaseline = "middle";
 
@@ -180,7 +228,7 @@
       c.font = "600 15px 'Segoe UI', sans-serif";
       c.textAlign = "left";
       c.fillStyle = color("--key-text");
-      c.fillText(k.presses, boxX + box + 8, mid);
+      c.fillText(k.presses - k.base, boxX + box + 8, mid);
 
       // Press bars start at the lane's left edge and scroll right, fading out.
       k.bars = k.bars.filter(p => p.end === null || (now - p.end) * SCROLL < laneW);
@@ -205,6 +253,33 @@
     });
   }
 
+  function drawHeat(dt, s) {
+    if (!heatGrid) return;
+    const gw = heat.width, gh = heat.height;
+    const decay = Math.pow(0.5, dt / HEAT_HALF_LIFE_MS);
+    let max = 0;
+    for (let i = 0; i < heatGrid.length; i++) {
+      heatGrid[i] *= decay;
+      if (heatGrid[i] > max) max = heatGrid[i];
+    }
+    if (pen) {
+      const cx = Math.floor(pen.x / s), cy = Math.floor(pen.y / s);
+      if (cx >= 0 && cy >= 0 && cx < gw && cy < gh) heatGrid[cy * gw + cx] += dt;  // time spent here
+    }
+    if (!max) return;
+    const img = hctx.createImageData(gw, gh);
+    for (let i = 0; i < heatGrid.length; i++) img.data[i * 4 + 3] = 220 * Math.min(1, HEAT_STRENGTH * Math.sqrt(heatGrid[i] / max));
+    hctx.putImageData(img, 0, 0);
+    hctx.globalCompositeOperation = "source-in";  // colour the alpha mask
+    hctx.fillStyle = color("--heat");
+    hctx.fillRect(0, 0, gw, gh);
+    hctx.globalCompositeOperation = "source-over";
+    ctx.save();
+    ctx.filter = `blur(${s * 2}px)`;
+    ctx.drawImage(heat, 0, 0, gw * s, gh * s);
+    ctx.restore();
+  }
+
   function draw(now) {
     requestAnimationFrame(draw);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -213,6 +288,8 @@
 
     const s = canvas.width / state.tablet[0];  // canvas pixels per mm
     const line = Math.max(1, s * 0.4);
+    const dt = lastFrame ? now - lastFrame : 0;
+    lastFrame = now;
 
     ctx.fillStyle = color("--tablet");
     ctx.strokeStyle = color("--tablet-edge");
@@ -222,15 +299,33 @@
     ctx.fill();
     ctx.stroke();
 
+    // Is the pen outside the (possibly rotated) area? Check in the area's own coordinates.
     const a = state.area;
+    const rot = a.rotation * Math.PI / 180;
+    if (pen) {
+      const dx = pen.x / s - a.x, dy = pen.y / s - a.y;
+      const lx = dx * Math.cos(rot) + dy * Math.sin(rot);
+      const ly = -dx * Math.sin(rot) + dy * Math.cos(rot);
+      if (Math.abs(lx) > a.width / 2 || Math.abs(ly) > a.height / 2) lastOut = now;
+    }
+    const glow = Math.max(0, 1 - (now - lastOut) / OUT_FADE_MS);
+
     ctx.save();
     ctx.translate(a.x * s, a.y * s);
-    ctx.rotate(a.rotation * Math.PI / 180);
+    ctx.rotate(rot);
     ctx.fillStyle = color("--area");
     ctx.strokeStyle = color("--area-edge");
     ctx.fillRect(-a.width * s / 2, -a.height * s / 2, a.width * s, a.height * s);
     ctx.strokeRect(-a.width * s / 2, -a.height * s / 2, a.width * s, a.height * s);
+    if (glow) {
+      ctx.globalAlpha = glow;
+      ctx.strokeStyle = ctx.shadowColor = color("--area-out");
+      ctx.shadowBlur = s * 4;
+      ctx.lineWidth = line * 2;
+      ctx.strokeRect(-a.width * s / 2, -a.height * s / 2, a.width * s, a.height * s);
+    }
     ctx.restore();
+    drawHeat(dt, s);
 
     trail = trail.filter(p => now - p.t < TRAIL_MS);
     ctx.lineCap = "round";
