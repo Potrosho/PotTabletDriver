@@ -414,8 +414,41 @@ def watch_keys(on_key):
         user32.DispatchMessageW(ctypes.byref(msg))
 
 
-def foreground_title():
-    """Title of the window that currently has focus."""
+WNDENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+user32.EnumWindows.argtypes = [WNDENUMPROC, wintypes.LPARAM]
+user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+kernel32.QueryFullProcessImageNameW.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR,
+                                                ctypes.POINTER(wintypes.DWORD)]
+
+
+def _process_exe(pid):
+    handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not handle:
+        return ""
+    try:
+        buf = ctypes.create_unicode_buffer(1024)
+        size = wintypes.DWORD(len(buf))
+        if not kernel32.QueryFullProcessImageNameW(handle, 0, buf, ctypes.byref(size)):
+            return ""
+        return buf.value.rsplit("\\", 1)[-1].lower()
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def osu_window_titles():
+    """Titles of osu!'s windows (focused or not); empty when osu! isn't running.
+    Checking the process name keeps e.g. a browser tab titled "osu! - ..." from counting."""
+    titles = []
     buf = ctypes.create_unicode_buffer(256)
-    user32.GetWindowTextW(user32.GetForegroundWindow(), buf, 256)
-    return buf.value
+
+    def callback(hwnd, _):
+        user32.GetWindowTextW(hwnd, buf, 256)
+        if buf.value.startswith("osu!"):
+            pid = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+            if _process_exe(pid.value) == "osu!.exe":
+                titles.append(buf.value)
+        return True
+
+    user32.EnumWindows(WNDENUMPROC(callback), 0)
+    return titles

@@ -94,7 +94,9 @@ BPM (1/4 notes, like osu! streams; alternating splits a stream between the two r
 box that glows while pressed, a press count since the driver started, and press bars that
 scroll away to the right. Colours are the `--key-1`/`--key-2` variables in `overlay.html`. They only appear while you're
 playing a map in osu! (stable): the driver sees this from the osu! window title, so
-replays and the editor count too. On osu!lazer the title never changes, so set
+replays and the editor count too. osu! doesn't need focus, so the keys stay up if you
+click OBS mid-map. Testing in a normal browser? Keep the page visible next to osu!:
+browsers pause drawing for covered or minimised windows (OBS doesn't). On osu!lazer the title never changes, so set
 `ONLY_WHILE_PLAYING` to `false` in `potlite/overlay.html` to always show them. To use
 other keys, change `KEYS` in `potlite/overlay.py`. Keys are read with Windows Raw Input,
 which only listens: it can't delay your keypresses in the game.

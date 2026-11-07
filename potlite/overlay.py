@@ -34,7 +34,7 @@ def on_key(keys, vk, down):
 
 
 def is_map_title(title):
-    """True for osu! (stable)'s window title while in a map: "osu!  - Artist - Title [Difficulty]"
+    """True for an osu! (stable) window title while in a map: "osu!  - Artist - Title [Difficulty]"
     instead of just "osu!".
     shortcut: title-based, so replays and the editor also count and osu!lazer is
     never detected; reading osu!'s memory (as tosu does) would be exact."""
