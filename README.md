@@ -79,7 +79,7 @@ Options:
 
 The driver can show a live view of your tablet for streaming: the tablet, your area,
 and the pen as a dot with a short fading trail. The dot and trail turn pink while the
-tip touches the tablet. A smaller tablet underneath shows an orange heatmap of where your
+tip touches the tablet. A smaller tablet underneath shows a red heatmap of where your
 pen spends its time (it fades by half every 20 seconds; size it with `--heatmap-width`), and the area outline glows red whenever the pen leaves
 the area.
 
@@ -114,8 +114,9 @@ nothing at all.
 #### Combo fire (needs tosu)
 
 If [tosu](https://github.com/tosuapp/tosu) is running, the area on the overlay catches fire
-when your combo gets high: embers from 100 combo, growing to a full blaze at 500, and a puff of
-smoke when the combo breaks. The overlay reads the live combo from tosu on your PC
+when your combo gets high: flames and sparks from 100 combo, growing to a full blaze at 500,
+and a puff of smoke when the combo breaks. The flame colours are `--fire-core`, `--fire-mid`
+and `--fire-tip`. The overlay reads the live combo from tosu on your PC
 (`ws://127.0.0.1:24050`). Without tosu it works as before, just without fire. Change the
 thresholds with `FIRE_START` and `FIRE_FULL` in `potlite/overlay.html`.
 

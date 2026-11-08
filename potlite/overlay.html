@@ -13,7 +13,11 @@
     --area: rgba(77, 163, 255, 0.18);
     --area-edge: rgba(77, 163, 255, 0.9);
     --area-out: #ff5c5c;   /* area outline glow while the pen is outside the area */
-    --heat: #ffb347;       /* heatmap: where the pen spends its time */
+    --heat: #ff3b30;       /* heatmap: where the pen spends its time */
+    --fire-core: #fff1c2;  /* combo fire: hottest part of a flame, at its base */
+    --fire-mid: #ff8a1f;   /* combo fire: middle of a flame, and the outline glow */
+    --fire-tip: #c8170e;   /* combo fire: tip of a flame, just before it fades */
+    --smoke: #5c5c66;      /* smoke when the combo breaks */
     --heatmap-width: 50%;  /* heatmap tablet size, relative to the main tablet */
     --pen: #ffffff;
     --pen-touch: #ff5ca8;  /* dot and trail colour while the tip touches */
@@ -101,7 +105,7 @@
   let lastOut = -Infinity;  // when the pen was last seen outside the area
   let lastFrame = 0;
   let combo = 0;      // live combo from tosu; 0 when tosu isn't running or not in a map
-  let particles = []; // fire and smoke: {x, y, vx, vy, age, life, size, smoke}
+  let particles = []; // flames, sparks and smoke: {kind, x, y, vx, vy, lift, age, life, size, phase}
 
   // tosu reads osu!'s memory and pushes live game data. Optional: without it there's no fire.
   function connectTosu() {
@@ -118,64 +122,111 @@
   let smokeBurst = false;
   connectTosu();
 
-  // Soft round sprites, drawn once: fire from yellow (0) to red (15), and grey smoke.
-  const sprite = (fill) => {
-    const c = document.createElement("canvas");
-    c.width = c.height = 64;
-    const g = c.getContext("2d"), grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
-    grad.addColorStop(0, fill(1));
-    grad.addColorStop(0.4, fill(0.6));
-    grad.addColorStop(1, fill(0));
-    g.fillStyle = grad;
-    g.fillRect(0, 0, 64, 64);
+  // Soft round sprites, drawn once from the --fire-* and --smoke colours. Fire runs through
+  // 16 shades: hot core -> orange -> red tip as a flame ages.
+  const mixer = Object.assign(document.createElement("canvas"), {width: 1, height: 1}).getContext("2d", {willReadFrequently: true});
+  const rgb = c => { mixer.clearRect(0, 0, 1, 1); mixer.fillStyle = c; mixer.fillRect(0, 0, 1, 1); return mixer.getImageData(0, 0, 1, 1).data; };
+  const mix = (p, q, t) => [0, 1, 2].map(i => Math.round(p[i] + (q[i] - p[i]) * t));
+  const sprite = ([r, g, b]) => {
+    const c = Object.assign(document.createElement("canvas"), {width: 64, height: 64});
+    const x = c.getContext("2d"), grad = x.createRadialGradient(32, 32, 0, 32, 32, 32);
+    grad.addColorStop(0, `rgba(${r}, ${g}, ${b}, 1)`);
+    grad.addColorStop(0.35, `rgba(${r}, ${g}, ${b}, 0.6)`);
+    grad.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
+    x.fillStyle = grad;
+    x.fillRect(0, 0, 64, 64);
     return c;
   };
-  const flames = Array.from({length: 16}, (_, i) => sprite(a => `hsla(${50 - 50 * i / 15}, 100%, ${62 - 14 * i / 15}%, ${a})`));
-  const smoke = sprite(a => `rgba(95, 95, 105, ${a})`);
+  const [core, mid, tip] = ["--fire-core", "--fire-mid", "--fire-tip"].map(n => rgb(color(n)));
+  const flames = Array.from({length: 16}, (_, i) => {
+    const k = i / 15;
+    return sprite(k < 0.35 ? mix(core, mid, k / 0.35) : mix(mid, tip, (k - 0.35) / 0.65));
+  });
+  const smoke = sprite(rgb(color("--smoke")));
+  const FLAME = 0, SPARK = 1, SMOKE = 2;
 
-  function drawFire(dt, s, a, rot) {
-    // Particles start on the area's outline and rise up the screen, from yellow to red.
+  function drawFire(dt, s, a, rot, now) {
+    // Flames start on the area's outline, sway, stretch and speed up as they rise, cooling from
+    // core to tip; sparks shoot higher; the outline itself glows. Speeds are in canvas px per ms.
     const power = Math.min(1, Math.max(0, (combo - FIRE_START) / (FIRE_FULL - FIRE_START)));
     const burning = combo >= FIRE_START;
     const cos = Math.cos(rot), sin = Math.sin(rot);
     const onEdge = () => {
       const w = a.width, h = a.height;
-      let t = Math.random() * 2 * (w + h), lx, ly;
+      let t = Math.random() * 2 * (w + h), lx, ly, bottom = false;
       if (t < w) { lx = t - w / 2; ly = -h / 2; }
       else if ((t -= w) < h) { lx = w / 2; ly = t - h / 2; }
-      else if ((t -= h) < w) { lx = w / 2 - t; ly = h / 2; }
+      else if ((t -= h) < w) { lx = w / 2 - t; ly = h / 2; bottom = true; }
       else { lx = -w / 2; ly = h / 2 - (t - w); }
-      return [(a.x + lx * cos - ly * sin) * s, (a.y + lx * sin + ly * cos) * s];
+      return [(a.x + lx * cos - ly * sin) * s, (a.y + lx * sin + ly * cos) * s, bottom];
+    };
+    const spawn = (perMs, make) => {
+      for (let n = perMs * dt; n > 0; n--) if (n >= 1 || Math.random() < n) particles.push(make(...onEdge()));
     };
     if (burning) {
-      for (let n = (0.08 + 0.5 * power) * dt; n > 0; n--) {
-        if (n < 1 && Math.random() > n) break;
-        const [x, y] = onEdge();
-        particles.push({x, y, vx: (Math.random() - 0.5) * 6 * s / 1000, vy: -(12 + 25 * power) * (0.6 + Math.random()) * s / 1000,
-                        age: 0, life: 350 + 450 * Math.random() * (0.5 + power), size: (1.2 + 2 * power) * (0.6 + Math.random() * 0.8) * s});
-      }
+      spawn(0.1 + 0.55 * power, (x, y, bottom) => ({
+        kind: FLAME, x, y, age: 0, phase: Math.random() * 6.3,
+        vx: (Math.random() - 0.5) * 4 * s / 1000, vy: -(6 + 10 * power) * s / 1000,
+        lift: -(25 + 45 * power) * (0.7 + 0.6 * Math.random()) * s / 1e6,
+        life: 320 + 520 * Math.random() * (0.5 + power),
+        // Bottom-edge flames rise through the area, so keep them small to leave it readable.
+        size: (1.4 + 2.4 * power) * (0.6 + 0.8 * Math.random()) * (bottom ? 0.45 : 1) * s,
+      }));
+      spawn(0.004 + 0.03 * power, (x, y) => ({
+        kind: SPARK, x, y, age: 0, phase: Math.random() * 6.3,
+        vx: (Math.random() - 0.5) * 14 * s / 1000, vy: -(25 + 45 * power) * (0.6 + Math.random()) * s / 1000,
+        lift: -10 * s / 1e6, life: 600 + 700 * Math.random(), size: (0.25 + 0.25 * Math.random()) * s,
+      }));
     }
     if (smokeBurst) {
       smokeBurst = false;
-      for (let i = 0; i < 120; i++) {
+      for (let i = 0; i < 140; i++) {
         const [x, y] = onEdge();
-        particles.push({x, y, vx: (Math.random() - 0.5) * 20 * s / 1000, vy: -(5 + 15 * Math.random()) * s / 1000,
-                        age: 0, life: 700 + 500 * Math.random(), size: (2 + 2 * Math.random()) * s, smoke: true});
+        particles.push({kind: SMOKE, x, y, age: 0, phase: Math.random() * 6.3,
+                        vx: (Math.random() - 0.5) * 18 * s / 1000, vy: -(4 + 14 * Math.random()) * s / 1000,
+                        lift: -6 * s / 1e6, life: 800 + 600 * Math.random(), size: (1.8 + 2 * Math.random()) * s});
       }
     }
     if (particles.length > 1500) particles = particles.slice(-1500);  // keep it cheap
 
     ctx.save();
+    if (burning) {
+      // The outline itself glows and flickers with the fire.
+      ctx.translate(a.x * s, a.y * s);
+      ctx.rotate(rot);
+      ctx.globalAlpha = (0.3 + 0.5 * power) * (0.85 + 0.15 * Math.sin(now * 0.023) * Math.sin(now * 0.041));
+      ctx.strokeStyle = ctx.shadowColor = color("--fire-mid");
+      ctx.shadowBlur = (2 + 6 * power) * s;
+      ctx.lineWidth = Math.max(1, s * 0.6);
+      ctx.strokeRect(-a.width * s / 2, -a.height * s / 2, a.width * s, a.height * s);
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.shadowBlur = 0;
+    }
     for (const p of particles) {
       p.age += dt;
-      p.x += p.vx * dt;
+      p.vy += p.lift * dt;
+      p.x += (p.vx + (p.kind === FLAME ? Math.sin(p.age * 0.012 + p.phase) * 3 * s / 1000 : 0)) * dt;
       p.y += p.vy * dt;
       const k = p.age / p.life;
       if (k >= 1) continue;
-      ctx.globalCompositeOperation = p.smoke ? "source-over" : "lighter";  // fire adds up to bright cores
-      ctx.globalAlpha = (p.smoke ? 0.5 : 0.7) * (1 - k);
-      const r = 2 * p.size * (p.smoke ? 0.6 + k : 1 - 0.6 * k);
-      ctx.drawImage(p.smoke ? smoke : flames[Math.floor(k * 16)], p.x - r, p.y - r, 2 * r, 2 * r);
+      if (p.kind === SMOKE) {
+        ctx.globalCompositeOperation = "source-over";
+        ctx.globalAlpha = 0.45 * (1 - k);
+        const r = p.size * (1 + 1.5 * k);
+        ctx.drawImage(smoke, p.x - r, p.y - r, 2 * r, 2 * r);
+        continue;
+      }
+      ctx.globalCompositeOperation = "lighter";  // overlapping fire adds up to bright cores
+      if (p.kind === SPARK) {
+        ctx.globalAlpha = (1 - k) * (0.5 + 0.5 * Math.sin(p.age * 0.08 + p.phase));  // twinkle
+        const r = p.size * 2;
+        ctx.drawImage(flames[2], p.x - r, p.y - r, 2 * r, 2 * r);
+        continue;
+      }
+      // A flame tongue: narrows and stretches upward as it ages, flickering.
+      ctx.globalAlpha = 0.55 * Math.pow(1 - k, 1.2) * (0.8 + 0.2 * Math.sin(p.age * 0.05 + p.phase));
+      const w = p.size * (1.1 - 0.6 * k), h = p.size * (1.6 + 1.4 * k);
+      ctx.drawImage(flames[Math.min(15, Math.floor(k * 16))], p.x - w, p.y - h * 1.2, 2 * w, 2 * h);
     }
     ctx.restore();
     particles = particles.filter(p => p.age < p.life);
@@ -451,7 +502,7 @@
     drawTablet(ctx, s, a, rot, glow);
     drawTablet(mctx, heatmap.width / state.tablet[0], a, rot, 0);
     drawHeat(dt, s);
-    drawFire(dt, s, a, rot);
+    drawFire(dt, s, a, rot, now);
 
     trail = trail.filter(p => now - p.t < TRAIL_MS);
     ctx.lineCap = "round";
