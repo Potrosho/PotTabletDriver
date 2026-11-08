@@ -114,11 +114,12 @@ nothing at all.
 #### Combo fire (needs tosu)
 
 If [tosu](https://github.com/tosuapp/tosu) is running, the area on the overlay catches fire
-when your combo gets high: flames and sparks from 100 combo, growing to a full blaze at 500,
+when your combo gets high, relative to the map: flames and sparks from 10% of the map's max
+combo (at least 50 combo), growing to a full blaze at 50%,
 and a puff of smoke when the combo breaks. The flame colours are `--fire-core`, `--fire-mid`
 and `--fire-tip`. The overlay reads the live combo from tosu on your PC
 (`ws://127.0.0.1:24050`). Without tosu it works as before, just without fire. Change the
-thresholds with `FIRE_START` and `FIRE_FULL` in `potlite/overlay.html`.
+thresholds with `FIRE_START_PCT`, `FIRE_MIN` and `FIRE_FULL_PCT` in `potlite/overlay.html`.
 
 ### Without the GUI
 
