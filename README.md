@@ -93,7 +93,7 @@ with `start_driver.bat`. Nothing else needs to be started.
 
 During a map, the overlay shows the song and difficulty you're playing (from osu!'s window
 title). Above the tablet, the keys panel's top line shows your combined stream BPM (1/4 notes, like osu!) and the
-peak this map (counted for streams of 8+ taps). Below it, a row per tap key (**E** and **R**)
+peak this map (your fastest 8 taps in a row). Below it, a row per tap key (**E** and **R**)
 shows that key's own BPM, a key box that glows while pressed, this map's press count, and
 press bars that scroll away to the right. Colours are the `--key-1`/`--key-2` variables in `overlay.html`. They only appear while you're
 playing a map in osu! (stable): the driver sees this from the osu! window title, so
