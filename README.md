@@ -111,6 +111,14 @@ file changes or the driver is updated. The overlay runs on its own low-priority 
 latest pen position, so it doesn't slow down the cursor. Until OBS connects, it does
 nothing at all.
 
+#### Combo fire (needs tosu)
+
+If [tosu](https://github.com/tosuapp/tosu) is running, the area on the overlay catches fire
+when your combo gets high: embers from 100 combo, growing to a full blaze at 500, and a puff of
+smoke when the combo breaks. The overlay reads the live combo from tosu on your PC
+(`ws://127.0.0.1:24050`). Without tosu it works as before, just without fire. Change the
+thresholds with `FIRE_START` and `FIRE_FULL` in `potlite/overlay.html`.
+
 ### Without the GUI
 
 `start_driver.bat` runs the driver in a console window. Stop it with Ctrl+C.

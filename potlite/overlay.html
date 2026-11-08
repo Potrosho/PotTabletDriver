@@ -76,6 +76,9 @@
   const HEAT_HALF_LIFE_MS = 20000;  // heatmap fades to half in this time
   const HEAT_STRENGTH = 1.8;        // higher = more of the heatmap shows at full colour
   const OUT_FADE_MS = 300;          // how long the out-of-area glow takes to fade
+  const FIRE_START = 100;  // combo where the area starts burning (needs tosu running)
+  const FIRE_FULL = 500;   // combo where the fire is at full strength
+  const TOSU = "ws://127.0.0.1:24050/websocket/v2";
   const keysEl = document.getElementById("keys");
   const playEl = document.getElementById("play");  // now playing + keys, shown during maps
   const kctx = keysEl.getContext("2d");
@@ -96,6 +99,86 @@
   let trail = [];     // recent pen positions
   let lastOut = -Infinity;  // when the pen was last seen outside the area
   let lastFrame = 0;
+  let combo = 0;      // live combo from tosu; 0 when tosu isn't running or not in a map
+  let particles = []; // fire and smoke: {x, y, vx, vy, age, life, size, smoke}
+
+  // tosu reads osu!'s memory and pushes live game data. Optional: without it there's no fire.
+  function connectTosu() {
+    const ws = new WebSocket(TOSU);
+    ws.onmessage = e => {
+      const d = JSON.parse(e.data);
+      const inMap = d.state?.name === "play";
+      const next = inMap ? (d.play?.combo?.current ?? 0) : 0;
+      if (inMap && combo >= FIRE_START && next < FIRE_START) smokeBurst = true;  // combo broke mid-map
+      combo = next;
+    };
+    ws.onclose = () => { combo = 0; setTimeout(connectTosu, 3000); };  // retry until tosu runs
+  }
+  let smokeBurst = false;
+  connectTosu();
+
+  // Soft round sprites, drawn once: fire from yellow (0) to red (15), and grey smoke.
+  const sprite = (fill) => {
+    const c = document.createElement("canvas");
+    c.width = c.height = 64;
+    const g = c.getContext("2d"), grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    grad.addColorStop(0, fill(1));
+    grad.addColorStop(0.4, fill(0.6));
+    grad.addColorStop(1, fill(0));
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 64, 64);
+    return c;
+  };
+  const flames = Array.from({length: 16}, (_, i) => sprite(a => `hsla(${50 - 50 * i / 15}, 100%, ${62 - 14 * i / 15}%, ${a})`));
+  const smoke = sprite(a => `rgba(95, 95, 105, ${a})`);
+
+  function drawFire(dt, s, a, rot) {
+    // Particles start on the area's outline and rise up the screen, from yellow to red.
+    const power = Math.min(1, Math.max(0, (combo - FIRE_START) / (FIRE_FULL - FIRE_START)));
+    const burning = combo >= FIRE_START;
+    const cos = Math.cos(rot), sin = Math.sin(rot);
+    const onEdge = () => {
+      const w = a.width, h = a.height;
+      let t = Math.random() * 2 * (w + h), lx, ly;
+      if (t < w) { lx = t - w / 2; ly = -h / 2; }
+      else if ((t -= w) < h) { lx = w / 2; ly = t - h / 2; }
+      else if ((t -= h) < w) { lx = w / 2 - t; ly = h / 2; }
+      else { lx = -w / 2; ly = h / 2 - (t - w); }
+      return [(a.x + lx * cos - ly * sin) * s, (a.y + lx * sin + ly * cos) * s];
+    };
+    if (burning) {
+      for (let n = (0.08 + 0.5 * power) * dt; n > 0; n--) {
+        if (n < 1 && Math.random() > n) break;
+        const [x, y] = onEdge();
+        particles.push({x, y, vx: (Math.random() - 0.5) * 6 * s / 1000, vy: -(12 + 25 * power) * (0.6 + Math.random()) * s / 1000,
+                        age: 0, life: 350 + 450 * Math.random() * (0.5 + power), size: (1.2 + 2 * power) * (0.6 + Math.random() * 0.8) * s});
+      }
+    }
+    if (smokeBurst) {
+      smokeBurst = false;
+      for (let i = 0; i < 120; i++) {
+        const [x, y] = onEdge();
+        particles.push({x, y, vx: (Math.random() - 0.5) * 20 * s / 1000, vy: -(5 + 15 * Math.random()) * s / 1000,
+                        age: 0, life: 700 + 500 * Math.random(), size: (2 + 2 * Math.random()) * s, smoke: true});
+      }
+    }
+    if (particles.length > 1500) particles = particles.slice(-1500);  // keep it cheap
+
+    ctx.save();
+    for (const p of particles) {
+      p.age += dt;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      const k = p.age / p.life;
+      if (k >= 1) continue;
+      ctx.globalCompositeOperation = p.smoke ? "source-over" : "lighter";  // fire adds up to bright cores
+      ctx.globalAlpha = (p.smoke ? 0.5 : 0.7) * (1 - k);
+      const r = 2 * p.size * (p.smoke ? 0.6 + k : 1 - 0.6 * k);
+      ctx.drawImage(p.smoke ? smoke : flames[Math.floor(k * 16)], p.x - r, p.y - r, 2 * r, 2 * r);
+    }
+    ctx.restore();
+    particles = particles.filter(p => p.age < p.life);
+  }
   const heat = document.createElement("canvas");  // 1 cell per mm, scaled up and blurred when drawn
   const hctx = heat.getContext("2d");
   let heatGrid = null;
@@ -362,6 +445,7 @@
     drawTablet(ctx, s, a, rot, glow);
     drawTablet(mctx, heatmap.width / state.tablet[0], a, rot, 0);
     drawHeat(dt, s);
+    drawFire(dt, s, a, rot);
 
     trail = trail.filter(p => now - p.t < TRAIL_MS);
     ctx.lineCap = "round";
